@@ -11,6 +11,8 @@ RWStructuredBuffer<float3> _Velocities;
 
 float deltaTime;
 
+//struct
+
 static const float3 posSrc = float3(30.0, 0.0, 0.0); //source
 static const float3 posSnk = float3(-50.0, 0.0, 0.0); //sink
 
@@ -19,10 +21,22 @@ static const float3 pos2 = float3(-10.0, 5.0, 0.0);
 static const float3 pos3 = float3(-15.0, -5.0, 0.0);
 static const float3 pos4 = float3(-20.0, 5.0, 0.0);
 
+static float3 node_positions[] = {
+	float3(-30.0, 0.0, 0.0), //source
+	float3(-50.0, 0.0, 0.0), //snk
+
+	float3(-5.0, -5.0, 0.0),
+	float3(-10.0, 5.0, 0.0),
+	float3(-15.0, -5.0, 0.0),
+	float3(-20.0, 5.0, 0.0)
+};
+
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
+	
+
 	// TODO: insert actual code here!
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
 	int idx = id.x + 512 * id.y; //(id.y + 1 * id.z);
@@ -32,28 +46,49 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 	float3 position = _Positions[idx].xyz;
 	float3 velocity = _Velocities[idx].xyz;
 
-	float distanceSrc = distance(posSrc, position);
-	float distanceSnk = distance(posSnk, position);
+	float3 sum_vel = float3(0, 0, 0);
+	for (int i = 0; i < 6; i++) {
+		float3 node_pos = node_positions[i];
+		float distanceToNode = max(1.0, distance(node_pos, position));
+		float3 deltaDir = normalize(node_pos - position) / distanceToNode; 
+		sum_vel = sum_vel + deltaDir*deltaTime;
+	}
+
+	velocity += (sum_vel / 6.0) * 0.5;
+	float damping = 0.9995;
+	velocity = velocity * damping;
+
+
+	//float distanceSrc = distance(posSrc, position);
+	//float distanceSnk = distance(posSnk, position);
 	//float distance3 = distance(pos3, position);
-	float distance1 = distance(pos1, position);
-	float distance2 = distance(pos2, position);
-	float distance3 = distance(pos3, position);
-	float distance4 = distance(pos4, position);
+	//float distance1 = distance(pos1, position);
+	//float distance2 = distance(pos2, position);
+	//float distance3 = distance(pos3, position);
+	//float distance4 = distance(pos4, position);
 
-	float3 deltaDirSrc = -normalize(posSrc - position) / exp(distanceSrc)*1.0;//pow(distance1, 1.7);
-	float3 deltaDirSnk = normalize(posSnk - position); // / exp(distance2)*1.0;
+	//float PI = 3.14159;
+	//float viscosity = 0.5;
+	//float r_c = sqrt(4.0 * viscosity /** deltatime*/);
+	//float flow_velocity = (1.0 / 2.0 * PI * distance1) * (1.0 - exp(-distance1 * distance1 / r_c));
 
-	float3 deltaDir1 = normalize(pos1 - position) / pow(distance1, 2.2);
-	float3 deltaDir2 = normalize(pos2 - position) / pow(distance2, 2.2);
-	float3 deltaDir3 = normalize(pos3 - position) / pow(distance3, 2.2);
-	float3 deltaDir4 = normalize(pos4 - position) / pow(distance4, 2.2);
+
+	//float3 deltaDirSrc = -normalize(posSrc - position) / exp(distanceSrc)*1.0;//pow(distance1, 1.7);
+	//float3 deltaDirSnk = normalize(posSnk - position); // / exp(distance2)*1.0;
+
+	//distance1 = max(1.0, distance1);
+
+	//float3 deltaDir1 = normalize(pos1 - position) / distance1;/// pow(distance1, 2.2);
+	//float3 deltaDir2 = normalize(pos2 - position) / pow(distance2, 2.2);
+	//float3 deltaDir3 = normalize(pos3 - position) / pow(distance3, 2.2);
+	//float3 deltaDir4 = normalize(pos4 - position) / pow(distance4, 2.2);
 	//float3 deltaDir5 = normalize(pos5 - position) / pow(distance5, 2.9);
 	
-	float damping = 0.9995;
-	velocity = velocity + (deltaDirSrc + deltaDirSnk*0.001 + deltaDir1*0.1 + deltaDir2*0.1 + deltaDir3*0.1 + deltaDir4*0.1)*0.1;
-	velocity *= damping;
+	//float damping = 0.9995;
+	//velocity = velocity + deltaDir1*deltaTime;//(deltaDirSrc + deltaDirSnk*0.001 + deltaDir1*0.1 + deltaDir2*0.1 + deltaDir3*0.1 + deltaDir4*0.1)*0.1;
+	//velocity *= damping;
 
-	float len = length(velocity);
+	/*float len = length(velocity);
 	if (len > 1.0) {
 		float3 dir = normalize(velocity);
 		if (len > 2.0) {
@@ -63,9 +98,9 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 		else {
 			velocity = velocity*0.5;// + float3(0.01, 0.01, 0.01);
 		}
-	}
+	}*/
 
-	_Positions[idx].xyz = position + velocity*0.1*deltaTime;
+	_Positions[idx].xyz = position + velocity;
 	_Velocities[idx].xyz = velocity;
 
 	//float3 pos = float3(id.x*spacing, id.y*spacing, id.z*spacing);
