@@ -21,8 +21,7 @@
 
 			StructuredBuffer<float3> _Positions;
 			StructuredBuffer<float3> _Velocities;
-
-			StructuredBuffer<float3> _Error;
+			StructuredBuffer<float> _Error;
 
 			uniform matrix model;
 			uniform float4 trans;
@@ -31,6 +30,7 @@
 			uniform uint _FrameTime;
 			uniform uint _Magnitude;
 			uniform int _TextureSwitchFrameNumber;
+			uniform int _iteration;
 
 			struct appdata
 			{
@@ -57,7 +57,7 @@
 				o.vertex = UnityWorldToClipPos(o.vertex.xyz);
 
 				//float speed = length(_Velocities[quadId]);
-				o.color = fixed3(_Error[quadId]*0.5) + 0.1;//(normalize(_Velocities[quadId]) + 1.0) * 0.5;
+				o.color = fixed3(_Error[quadId + _iteration * _PointsCount], 0.0, 0.0) + 0.1;//(normalize(_Velocities[quadId]) + 1.0) * 0.5;
 
 				return o;
 			}
