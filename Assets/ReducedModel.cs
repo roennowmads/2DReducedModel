@@ -24,7 +24,7 @@ public class ReducedModel : MonoBehaviour {
 
     private int m_textureSwitchFrameNumber = -1;
 
-    private ComputeBuffer positionComputebuffer, velocityComputebuffer;
+    private ComputeBuffer positionComputebuffer, velocityComputebuffer, nodesComputeBuffer;
     private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth;
 
     private float m_updateFrequency = 0.0333f;
@@ -33,6 +33,15 @@ public class ReducedModel : MonoBehaviour {
 
     public ComputeShader computeShader;
     private int m_kernel;
+
+    struct Node {
+        Vector3 pos;
+        float force;
+        public Node(Vector3 pos, float force) {
+            this.pos = pos;
+            this.force = force;
+        }
+    };
 
     public int getPointCount () {
         return m_pointsCount;
@@ -104,13 +113,22 @@ public class ReducedModel : MonoBehaviour {
         //m_textureSideSize = 1 << m_textureSideSizePower;
         //m_textureSize = m_textureSideSize * m_textureSideSize;
 
+
+        //nodes for training:
+         Node[] trainingNodes = {
+            new Node(new Vector3(0.0f, 0.0f, 0.0f), -0.005f),
+            new Node(new Vector3(2.0f, 3.0f, 0.0f), -0.005f),
+            new Node(new Vector3(-5.0f, 2.0f, 0.0f), 0.02f)
+        };
+
+
         Screen.SetResolution(720, 1280, true);
 
         m_dimensionWidth = 512;
         m_dimensionHeight = 512;
         m_dimensionDepth = 1;
         Vector3[] points = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
-        Vector3 startingPosition = new Vector3(0.0f, 0.0f, 0.0f);
+        Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
         
         float deltaPos = 0.05f;
 
@@ -121,9 +139,9 @@ public class ReducedModel : MonoBehaviour {
                     //int index = i + j * m_dimensionWidth;
                     points[index] = new Vector3();
                     float randomVal = UnityEngine.Random.Range(0.0f, 1.0f);
-                    points[index].x = i * deltaPos - m_dimensionWidth*deltaPos + m_dimensionWidth*deltaPos*0.5f + randomVal*1.0f; // + randomVal - 0.5f + startingPosition.x;
+                    points[index].x = i * deltaPos - m_dimensionWidth*deltaPos + m_dimensionWidth*deltaPos*0.5f + randomVal*1.0f + startingPosition.x; // + randomVal - 0.5f + startingPosition.x;
                     randomVal = UnityEngine.Random.Range(0.0f, 1.0f);
-                    points[index].y = j * deltaPos - m_dimensionHeight*deltaPos + m_dimensionHeight*deltaPos*0.5f + randomVal*1.0f; //- dimensionHeight*deltaPos + dimensionWidth*deltaPos*0.5f + randomVal - 0.5f + startingPosition.y;
+                    points[index].y = j * deltaPos - m_dimensionHeight*deltaPos + m_dimensionHeight*deltaPos*0.5f + randomVal*1.0f + startingPosition.y; //- dimensionHeight*deltaPos + dimensionWidth*deltaPos*0.5f + randomVal - 0.5f + startingPosition.y;
                     //points[index].z = k * deltaPos - m_dimensionDepth*deltaPos + m_dimensionDepth*deltaPos*0.5f/* + randomVal*10.0f*/; //- dimensionHeight*deltaPos + dimensionWidth*deltaPos*0.5f + randomVal - 0.5f + startingPosition.y;
                     
                 }
@@ -181,8 +199,27 @@ public class ReducedModel : MonoBehaviour {
         velocityComputebuffer.SetData(velocities);
         pointRenderer.material.SetBuffer ("_Velocities", velocityComputebuffer);
 
+
+        /*Node[] nodes = {
+            //new Node(new Vector3(40.0f, 0.0f, 0.0f), -1.0f), //source
+            //new Node(new Vector3(-50.0f, 0.0f, 0.0f), 1.0f), //sink
+
+            //new Node(new Vector3(-5.0f, -5.0f, 0.0f), 0.1f),
+            //new Node(new Vector3(-10.0f, 5.0f, 0.0f), 0.1f),
+            new Node(new Vector3(0.0f, 0.0f, 0.0f), -0.005f),
+            new Node(new Vector3(2.0f, 3.0f, 0.0f), -0.005f),
+            new Node(new Vector3(-5.0f, 2.0f, 0.0f), 0.02f),
+            //new Node(new Vector3(-15.0f, -5.0f, 0.0f), 0.1f),
+            //new Node(new Vector3(-20.0f, 5.0f, 0.0f), 0.1f)
+        };*/
+
+        nodesComputeBuffer = new ComputeBuffer(trainingNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.GPUMemory);
+        nodesComputeBuffer.SetData(trainingNodes);
+        //pointRenderer.material.SetBuffer ("_Nodes", nodesComputeBuffer);
+
         computeShader.SetBuffer(m_kernel, "_Positions", positionComputebuffer);
         computeShader.SetBuffer(m_kernel, "_Velocities", velocityComputebuffer);
+        computeShader.SetBuffer(m_kernel, "_Nodes", nodesComputeBuffer);
 
         pointRenderer.material.SetInt("_PointsCount", m_pointsCount);
         float aspect = Camera.main.GetComponent<Camera>().aspect;
@@ -216,7 +253,7 @@ public class ReducedModel : MonoBehaviour {
 
         //Debug.Log(a);
         m_currentTime += Time.deltaTime;
-        if (m_currentTime >= m_updateFrequency)
+        //if (m_currentTime >= m_updateFrequency)
         {
             m_currentTime = 0.0f;
             Dispatch();
@@ -240,6 +277,7 @@ public class ReducedModel : MonoBehaviour {
     void OnDestroy() {
         positionComputebuffer.Release();
         velocityComputebuffer.Release();
+        nodesComputeBuffer.Release();
     }
     private void Dispatch()
     {

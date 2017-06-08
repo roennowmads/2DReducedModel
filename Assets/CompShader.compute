@@ -3,39 +3,28 @@
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
+
+struct Node {
+	float3 pos;
+	float force;
+};
+
 RWStructuredBuffer<float3> _Positions;
 RWStructuredBuffer<float3> _Velocities;
+RWStructuredBuffer<Node> _Nodes;
 
 #define thread_group_size_x 1
 #define thread_group_size_y 1
 
+
+static float3 g = float3(-0.0000918, 0.0, 0.0);
+
 float deltaTime;
-
-//struct
-
-static const float3 posSrc = float3(30.0, 0.0, 0.0); //source
-static const float3 posSnk = float3(-50.0, 0.0, 0.0); //sink
-
-static const float3 pos1 = float3(-5.0, -5.0, 0.0);
-static const float3 pos2 = float3(-10.0, 5.0, 0.0);
-static const float3 pos3 = float3(-15.0, -5.0, 0.0);
-static const float3 pos4 = float3(-20.0, 5.0, 0.0);
-
-static float3 node_positions[] = {
-	float3(-30.0, 0.0, 0.0), //source
-	float3(-50.0, 0.0, 0.0), //snk
-
-	float3(-5.0, -5.0, 0.0),
-	float3(-10.0, 5.0, 0.0),
-	float3(-15.0, -5.0, 0.0),
-	float3(-20.0, 5.0, 0.0)
-};
 
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-	
 
 	// TODO: insert actual code here!
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
@@ -48,14 +37,15 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 
 	float3 sum_vel = float3(0, 0, 0);
 	for (int i = 0; i < 6; i++) {
-		float3 node_pos = node_positions[i];
-		float distanceToNode = max(1.0, distance(node_pos, position));
-		float3 deltaDir = normalize(node_pos - position) / distanceToNode; 
-		sum_vel = sum_vel + deltaDir*deltaTime;
+		float3 node_pos = _Nodes[i].pos;
+		float distanceToNode = max(2.0, distance(node_pos, position));
+		float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+		sum_vel = sum_vel + deltaVelocity;
 	}
 
 	velocity += (sum_vel / 6.0) * 0.5;
-	float damping = 0.9995;
+	velocity += g;
+	float damping = 0.995;
 	velocity = velocity * damping;
 
 

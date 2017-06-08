@@ -54,7 +54,8 @@
 				o.vertex += trans;
 				o.vertex = UnityWorldToClipPos(o.vertex.xyz);
 
-				o.color = (_Velocities[quadId].xyz + 1.0) * 0.5;
+				//float speed = length(_Velocities[quadId]);
+				o.color = (normalize(_Velocities[quadId]) + 1.0) * 0.5;
 
 				return o;
 			}
