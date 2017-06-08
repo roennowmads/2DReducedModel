@@ -22,6 +22,8 @@
 			StructuredBuffer<float3> _Positions;
 			StructuredBuffer<float3> _Velocities;
 
+			StructuredBuffer<float3> _Error;
+
 			uniform matrix model;
 			uniform float4 trans;
 			uniform float aspect;
@@ -55,7 +57,7 @@
 				o.vertex = UnityWorldToClipPos(o.vertex.xyz);
 
 				//float speed = length(_Velocities[quadId]);
-				o.color = (normalize(_Velocities[quadId]) + 1.0) * 0.5;
+				o.color = fixed3(_Error[quadId]*0.5) + 0.1;//(normalize(_Velocities[quadId]) + 1.0) * 0.5;
 
 				return o;
 			}

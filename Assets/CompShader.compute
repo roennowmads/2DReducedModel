@@ -13,6 +13,7 @@ RWStructuredBuffer<float3> _Positions;
 RWStructuredBuffer<float3> _Velocities;
 RWStructuredBuffer<Node> _Nodes;
 RWStructuredBuffer<float3> _PositionsRecord;
+RWStructuredBuffer<float3> _Error;
 
 #define thread_group_size_x 1
 #define thread_group_size_y 1
@@ -58,7 +59,29 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 		_PositionsRecord[idx + _iteration * _particleCount] = _Positions[idx].xyz;
 	}
 	else {
-		_Positions[idx].xyz = _PositionsRecord[idx + _iteration * _particleCount];
-		//_Velocities[idx].xyz = float3(1.0, 1.0, 1.0);
+		float3 recordedPosition = _PositionsRecord[idx + _iteration * _particleCount];
+		
+
+		float3 position = _Positions[idx].xyz;
+		float3 velocity = _Velocities[idx].xyz;
+
+		float3 sum_vel = float3(0, 0, 0);
+		for (int i = 0; i < 6; i++) {
+			float3 node_pos = _Nodes[i].pos;
+			float distanceToNode = max(2.0, distance(node_pos, position));
+			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+			sum_vel = sum_vel + deltaVelocity;
+		}
+
+		velocity += (sum_vel / 6.0) * 0.5;
+		velocity += g;
+		float damping = 0.995;
+		velocity = velocity * damping;
+
+		_Positions[idx].xyz = position + velocity;
+
+		_Velocities[idx].xyz = velocity;
+
+		_Error[idx + _iteration * _particleCount] = pow(abs(_Positions[idx] - recordedPosition), 2.0); //pow(distance(_Positions[idx], recordedPosition), 20.0);
 	}
 }
