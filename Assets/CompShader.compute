@@ -12,6 +12,7 @@ struct Node {
 RWStructuredBuffer<float3> _Positions;
 RWStructuredBuffer<float3> _Velocities;
 RWStructuredBuffer<Node> _Nodes;
+RWStructuredBuffer<float3> _PositionsRecord;
 
 #define thread_group_size_x 1
 #define thread_group_size_y 1
@@ -20,7 +21,9 @@ RWStructuredBuffer<Node> _Nodes;
 static float3 g = float3(-0.0000918, 0.0, 0.0);
 
 float deltaTime;
-
+int _particleCount;
+int _iteration;
+bool _recording;
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
@@ -28,72 +31,34 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 
 	// TODO: insert actual code here!
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
-	int idx = id.x + 512 * id.y; //(id.y + 1 * id.z);
+	int idx = id.x + 256 * id.y; //(id.y + 1 * id.z);
 
 	//float spacing = 1.0;
 
-	float3 position = _Positions[idx].xyz;
-	float3 velocity = _Velocities[idx].xyz;
+	if (_recording) {
+		float3 position = _Positions[idx].xyz;
+		float3 velocity = _Velocities[idx].xyz;
 
-	float3 sum_vel = float3(0, 0, 0);
-	for (int i = 0; i < 6; i++) {
-		float3 node_pos = _Nodes[i].pos;
-		float distanceToNode = max(2.0, distance(node_pos, position));
-		float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
-		sum_vel = sum_vel + deltaVelocity;
+		float3 sum_vel = float3(0, 0, 0);
+		for (int i = 0; i < 6; i++) {
+			float3 node_pos = _Nodes[i].pos;
+			float distanceToNode = max(2.0, distance(node_pos, position));
+			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+			sum_vel = sum_vel + deltaVelocity;
+		}
+
+		velocity += (sum_vel / 6.0) * 0.5;
+		velocity += g;
+		float damping = 0.995;
+		velocity = velocity * damping;
+
+		_Positions[idx].xyz = position + velocity;
+		_Velocities[idx].xyz = velocity;
+
+		_PositionsRecord[idx + _iteration * _particleCount] = _Positions[idx].xyz;
 	}
-
-	velocity += (sum_vel / 6.0) * 0.5;
-	velocity += g;
-	float damping = 0.995;
-	velocity = velocity * damping;
-
-
-	//float distanceSrc = distance(posSrc, position);
-	//float distanceSnk = distance(posSnk, position);
-	//float distance3 = distance(pos3, position);
-	//float distance1 = distance(pos1, position);
-	//float distance2 = distance(pos2, position);
-	//float distance3 = distance(pos3, position);
-	//float distance4 = distance(pos4, position);
-
-	//float PI = 3.14159;
-	//float viscosity = 0.5;
-	//float r_c = sqrt(4.0 * viscosity /** deltatime*/);
-	//float flow_velocity = (1.0 / 2.0 * PI * distance1) * (1.0 - exp(-distance1 * distance1 / r_c));
-
-
-	//float3 deltaDirSrc = -normalize(posSrc - position) / exp(distanceSrc)*1.0;//pow(distance1, 1.7);
-	//float3 deltaDirSnk = normalize(posSnk - position); // / exp(distance2)*1.0;
-
-	//distance1 = max(1.0, distance1);
-
-	//float3 deltaDir1 = normalize(pos1 - position) / distance1;/// pow(distance1, 2.2);
-	//float3 deltaDir2 = normalize(pos2 - position) / pow(distance2, 2.2);
-	//float3 deltaDir3 = normalize(pos3 - position) / pow(distance3, 2.2);
-	//float3 deltaDir4 = normalize(pos4 - position) / pow(distance4, 2.2);
-	//float3 deltaDir5 = normalize(pos5 - position) / pow(distance5, 2.9);
-	
-	//float damping = 0.9995;
-	//velocity = velocity + deltaDir1*deltaTime;//(deltaDirSrc + deltaDirSnk*0.001 + deltaDir1*0.1 + deltaDir2*0.1 + deltaDir3*0.1 + deltaDir4*0.1)*0.1;
-	//velocity *= damping;
-
-	/*float len = length(velocity);
-	if (len > 1.0) {
-		float3 dir = normalize(velocity);
-		if (len > 2.0) {
-			float3 dir = normalize(velocity);
-			velocity = dir*2.0;
-		}
-		else {
-			velocity = velocity*0.5;// + float3(0.01, 0.01, 0.01);
-		}
-	}*/
-
-	_Positions[idx].xyz = position + velocity;
-	_Velocities[idx].xyz = velocity;
-
-	//float3 pos = float3(id.x*spacing, id.y*spacing, id.z*spacing);
-
-	//_Positions[idx] = _Positions[idx] + 0.001;
+	else {
+		_Positions[idx].xyz = _PositionsRecord[idx + _iteration * _particleCount];
+		//_Velocities[idx].xyz = float3(1.0, 1.0, 1.0);
+	}
 }

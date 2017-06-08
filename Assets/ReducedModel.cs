@@ -24,12 +24,14 @@ public class ReducedModel : MonoBehaviour {
 
     private int m_textureSwitchFrameNumber = -1;
 
-    private ComputeBuffer positionComputebuffer, velocityComputebuffer, nodesComputeBuffer;
+    private ComputeBuffer positionComputebuffer, velocityComputebuffer, nodesComputeBuffer, positionRecordComputebuffer;
     private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth;
 
     private float m_updateFrequency = 0.0333f;
     private float m_currentTime;
     private float m_lastFrameTime = 0.0f;
+    private int m_iteration = 0;
+    private int m_maxIterations = 5000;
 
     public ComputeShader computeShader;
     private int m_kernel;
@@ -124,8 +126,8 @@ public class ReducedModel : MonoBehaviour {
 
         Screen.SetResolution(720, 1280, true);
 
-        m_dimensionWidth = 512;
-        m_dimensionHeight = 512;
+        m_dimensionWidth = 256;
+        m_dimensionHeight = 256;
         m_dimensionDepth = 1;
         Vector3[] points = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
         Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
@@ -199,27 +201,15 @@ public class ReducedModel : MonoBehaviour {
         velocityComputebuffer.SetData(velocities);
         pointRenderer.material.SetBuffer ("_Velocities", velocityComputebuffer);
 
-
-        /*Node[] nodes = {
-            //new Node(new Vector3(40.0f, 0.0f, 0.0f), -1.0f), //source
-            //new Node(new Vector3(-50.0f, 0.0f, 0.0f), 1.0f), //sink
-
-            //new Node(new Vector3(-5.0f, -5.0f, 0.0f), 0.1f),
-            //new Node(new Vector3(-10.0f, 5.0f, 0.0f), 0.1f),
-            new Node(new Vector3(0.0f, 0.0f, 0.0f), -0.005f),
-            new Node(new Vector3(2.0f, 3.0f, 0.0f), -0.005f),
-            new Node(new Vector3(-5.0f, 2.0f, 0.0f), 0.02f),
-            //new Node(new Vector3(-15.0f, -5.0f, 0.0f), 0.1f),
-            //new Node(new Vector3(-20.0f, 5.0f, 0.0f), 0.1f)
-        };*/
-
         nodesComputeBuffer = new ComputeBuffer(trainingNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.GPUMemory);
         nodesComputeBuffer.SetData(trainingNodes);
-        //pointRenderer.material.SetBuffer ("_Nodes", nodesComputeBuffer);
+
+        positionRecordComputebuffer = new ComputeBuffer (m_pointsCount*m_maxIterations, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.GPUMemory);
 
         computeShader.SetBuffer(m_kernel, "_Positions", positionComputebuffer);
         computeShader.SetBuffer(m_kernel, "_Velocities", velocityComputebuffer);
         computeShader.SetBuffer(m_kernel, "_Nodes", nodesComputeBuffer);
+        computeShader.SetBuffer(m_kernel, "_PositionsRecord", positionRecordComputebuffer);
 
         pointRenderer.material.SetInt("_PointsCount", m_pointsCount);
         float aspect = Camera.main.GetComponent<Camera>().aspect;
@@ -230,6 +220,21 @@ public class ReducedModel : MonoBehaviour {
         pointRenderer.material.SetInt("_TextureSwitchFrameNumber", m_textureSwitchFrameNumber);   
 
         Debug.Log("Number of points: " + m_pointsCount);
+
+        computeShader.SetInt("_particleCount", m_pointsCount);
+
+        computeShader.SetBool("_recording", true);
+
+        //Record simulation:
+        for (int i = 0; i < m_maxIterations; i++) {
+            computeShader.SetInt("_iteration", i);
+            Dispatch();
+        }
+
+        computeShader.SetBool("_recording", false);
+
+        m_iteration = 0;
+
     }
 	
 	// Update is called once per frame
@@ -252,21 +257,34 @@ public class ReducedModel : MonoBehaviour {
         //int a = pointRenderer.material.GetInt("_FrameTime");
 
         //Debug.Log(a);
-        m_currentTime += Time.deltaTime;
+        //m_currentTime += Time.deltaTime;
         //if (m_currentTime >= m_updateFrequency)
         {
-            m_currentTime = 0.0f;
+            //m_currentTime = 0.0f;
+            computeShader.SetInt("_iteration", m_iteration);
             Dispatch();
-            m_lastFrameTime = Time.fixedTime;
+            //m_lastFrameTime = Time.fixedTime;
         }
+
+        m_iteration++;
+        m_iteration = m_iteration % m_maxIterations;
     }
 
     private void OnRenderObject()
     {
-        pointRenderer.material.SetPass(0);
-        pointRenderer.material.SetMatrix("model", transform.localToWorldMatrix);
-        //Graphics.DrawProcedural(MeshTopology.Points, 1, m_pointsCount);
-        Graphics.DrawProcedural(MeshTopology.Points, m_pointsCount);  // index buffer.
+        //m_currentTime += Time.deltaTime;
+        //if (m_currentTime >= m_updateFrequency)
+        {
+            m_currentTime = 0.0f;
+            pointRenderer.material.SetPass(0);
+            pointRenderer.material.SetMatrix("model", transform.localToWorldMatrix);
+            //Graphics.DrawProcedural(MeshTopology.Points, 1, m_pointsCount);
+            Graphics.DrawProcedural(MeshTopology.Points, m_pointsCount);  // index buffer.
+        }
+
+
+
+        
     }
 
     /*void OnPostRender ()
@@ -278,14 +296,10 @@ public class ReducedModel : MonoBehaviour {
         positionComputebuffer.Release();
         velocityComputebuffer.Release();
         nodesComputeBuffer.Release();
+        positionRecordComputebuffer.Release();
     }
     private void Dispatch()
     {
-        //constantBuffer.SetData(new[] { Time.time });
-
-        //computeShader.SetBuffer(_kernel, "offsets", offsetBuffer);
-        //computeShader.SetBuffer(_kernel, "output", outputBuffer);
-
         float deltaTime = Time.fixedTime - m_lastFrameTime;
 
         Debug.Log("Delta time: " + deltaTime);
