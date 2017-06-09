@@ -20,7 +20,7 @@ public class ReducedModel : MonoBehaviour {
 
     private int m_textureSwitchFrameNumber = -1;
 
-    private ComputeBuffer positionComputebuffer, velocityComputebuffer, nodesComputeBuffer, positionRecordComputebuffer, errorComputeBuffer;
+    private ComputeBuffer particleComputebuffer, nodesComputeBuffer, errorDataComputebuffer;
     private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth;
 
     private float m_updateFrequency = 0.0333f;
@@ -31,9 +31,10 @@ public class ReducedModel : MonoBehaviour {
 
     public ComputeShader m_computeShader;
     public ComputeShader m_computeShaderSum;
-    private int m_kernel, m_kernelSum;
+    private int m_kernel, m_kernelSum, m_kernelRecord;
 
-    private Vector3[] m_points, m_velocities;
+    private Particle[] m_particles;
+    private ErrorData[] m_particlesError;
 
     struct Node {
         Vector3 pos;
@@ -44,12 +45,26 @@ public class ReducedModel : MonoBehaviour {
         }
     };
 
+    struct Particle {
+        public Vector3 position;
+        public Vector3 velocity;
+    };
+
+    struct ErrorData {
+        public Vector3 recordedPosition;
+        public float error;
+    };
+
     void initializeParticles() {
         m_dimensionWidth = 256;
         m_dimensionHeight = 1;
         m_dimensionDepth = 1;
-        m_points = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
-        m_velocities = new Vector3[m_points.Length];
+
+        m_particles = new Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
+        m_particlesError = new ErrorData[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth * m_maxIterations];
+
+        //m_points = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
+        //m_velocities = new Vector3[m_points.Length];
         Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
         
         float deltaPos = 0.05f;
@@ -58,49 +73,38 @@ public class ReducedModel : MonoBehaviour {
             for (int j = 0; j < m_dimensionHeight; j++) {
                 for (int k = 0; k < m_dimensionDepth; k++) {
                     int index = i + m_dimensionWidth * (j + m_dimensionDepth * k);
-                    //int index = i + j * m_dimensionWidth;
-                    m_points[index] = new Vector3();
+                    m_particles[index].position = new Vector3();
                     float randomVal = 0.0f;//UnityEngine.Random.Range(0.0f, 1.0f);
-                    m_points[index].x = i * deltaPos - m_dimensionWidth*deltaPos + m_dimensionWidth*deltaPos*0.5f + randomVal*1.0f + startingPosition.x; // + randomVal - 0.5f + startingPosition.x;
+                    m_particles[index].position.x = i * deltaPos - m_dimensionWidth*deltaPos + m_dimensionWidth*deltaPos*0.5f + randomVal*1.0f + startingPosition.x; // + randomVal - 0.5f + startingPosition.x;
                     randomVal = 0.0f;//UnityEngine.Random.Range(0.0f, 1.0f);
-                    m_points[index].y = j * deltaPos - m_dimensionHeight*deltaPos + m_dimensionHeight*deltaPos*0.5f + randomVal*1.0f + startingPosition.y; //- dimensionHeight*deltaPos + dimensionWidth*deltaPos*0.5f + randomVal - 0.5f + startingPosition.y;
+                    m_particles[index].position.y = j * deltaPos - m_dimensionHeight*deltaPos + m_dimensionHeight*deltaPos*0.5f + randomVal*1.0f + startingPosition.y; //- dimensionHeight*deltaPos + dimensionWidth*deltaPos*0.5f + randomVal - 0.5f + startingPosition.y;
                     //points[index].z = k * deltaPos - m_dimensionDepth*deltaPos + m_dimensionDepth*deltaPos*0.5f/* + randomVal*10.0f*/; //- dimensionHeight*deltaPos + dimensionWidth*deltaPos*0.5f + randomVal - 0.5f + startingPosition.y;
-                    
+                    m_particles[index].velocity = new Vector3();
                 }
             }
         }
 
-        
-        for (int i = 0; i < m_dimensionWidth; i++) {
-            for (int j = 0; j < m_dimensionHeight; j++) {
-                for (int k = 0; k < m_dimensionDepth; k++) {
-                    int index = i + m_dimensionWidth * (j + m_dimensionDepth * k);//i + j * m_dimensionWidth;
-                    m_velocities[index] = new Vector3();
-                }
-            }
-        }
+        m_pointsCount = m_particles.Length;
 
-        m_pointsCount = m_points.Length;
+        particleComputebuffer = new ComputeBuffer (m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
+        particleComputebuffer.SetData(m_particles);
+        m_pointRenderer.material.SetBuffer ("_ParticleData", particleComputebuffer);
+        m_computeShader.SetBuffer(m_kernel, "_ParticleData", particleComputebuffer);
+        m_computeShader.SetBuffer(m_kernelRecord, "_ParticleData", particleComputebuffer);
 
-        positionComputebuffer = new ComputeBuffer (m_pointsCount, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.Default);
-        positionComputebuffer.SetData(m_points);
-        m_pointRenderer.material.SetBuffer ("_Positions", positionComputebuffer);
-        m_computeShader.SetBuffer(m_kernel, "_Positions", positionComputebuffer);
-
-        velocityComputebuffer = new ComputeBuffer (m_pointsCount, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.Default);
-        velocityComputebuffer.SetData(m_velocities);
-        m_pointRenderer.material.SetBuffer ("_Velocities", velocityComputebuffer);       
-        m_computeShader.SetBuffer(m_kernel, "_Velocities", velocityComputebuffer);
+        errorDataComputebuffer = new ComputeBuffer (m_particlesError.Length, Marshal.SizeOf(typeof(ErrorData)), ComputeBufferType.Default);
+        errorDataComputebuffer.SetData(m_particlesError);
+        m_pointRenderer.material.SetBuffer ("_ErrorData", errorDataComputebuffer);
+        m_computeShader.SetBuffer(m_kernel, "_ErrorData", errorDataComputebuffer);
+        m_computeShader.SetBuffer(m_kernelRecord, "_ErrorData", errorDataComputebuffer);
+        m_computeShaderSum.SetBuffer(m_kernelSum, "g_data", errorDataComputebuffer);
     }
 
     void resetParticles() {
-        positionComputebuffer.SetData(m_points);
-        m_pointRenderer.material.SetBuffer ("_Positions", positionComputebuffer);
-        m_computeShader.SetBuffer(m_kernel, "_Positions", positionComputebuffer);
-        
-        velocityComputebuffer.SetData(m_velocities);
-        m_pointRenderer.material.SetBuffer ("_Velocities", velocityComputebuffer);       
-        m_computeShader.SetBuffer(m_kernel, "_Velocities", velocityComputebuffer);
+        particleComputebuffer.SetData(m_particles);
+        m_pointRenderer.material.SetBuffer ("_ParticleData", particleComputebuffer);
+        m_computeShader.SetBuffer(m_kernel, "_ParticleData", particleComputebuffer);
+        m_computeShader.SetBuffer(m_kernelRecord, "_ParticleData", particleComputebuffer);
     }
 
     void Start () {
@@ -108,6 +112,7 @@ public class ReducedModel : MonoBehaviour {
         m_pointRenderer = GetComponent<Renderer>();
         m_kernel = m_computeShader.FindKernel("CSMain");
         m_kernelSum = m_computeShaderSum.FindKernel("reduce1");
+        m_kernelRecord = m_computeShader.FindKernel("record");
 
         //nodes for training:
         Node[] trainingNodes = {
@@ -126,23 +131,8 @@ public class ReducedModel : MonoBehaviour {
 
         nodesComputeBuffer = new ComputeBuffer(trainingNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
         nodesComputeBuffer.SetData(trainingNodes);
-
-        positionRecordComputebuffer = new ComputeBuffer (m_pointsCount*m_maxIterations, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.Default);
-
-        errorComputeBuffer = new ComputeBuffer(m_pointsCount*m_maxIterations, Marshal.SizeOf(typeof(float)), ComputeBufferType.Default);
-        float[] errorData = new float[m_pointsCount*m_maxIterations];
-        for (int i = 0; i < errorData.Length; i++) {
-            errorData[i] = 1.0f;
-        }
-        errorComputeBuffer.SetData(errorData);
-
         m_computeShader.SetBuffer(m_kernel, "_Nodes", nodesComputeBuffer);
-        m_computeShader.SetBuffer(m_kernel, "_PositionsRecord", positionRecordComputebuffer);
-        m_computeShader.SetBuffer(m_kernel, "_Error", errorComputeBuffer);
-
-        m_computeShaderSum.SetBuffer(m_kernelSum, "g_data", errorComputeBuffer);
-
-        //m_pointRenderer.material.SetBuffer ("_Error", errorComputeBuffer);
+        m_computeShader.SetBuffer(m_kernelRecord, "_Nodes", nodesComputeBuffer);
 
         m_pointRenderer.material.SetInt("_PointsCount", m_pointsCount);
         float aspect = Camera.main.GetComponent<Camera>().aspect;
@@ -155,12 +145,13 @@ public class ReducedModel : MonoBehaviour {
 
         m_computeShader.SetInt("_particleCount", m_pointsCount);
 
+        //m_computeShader.SetBool("_recording", false);
         //Record simulation:
         m_computeShader.SetBool("_recording", true);
         
         for (int i = 0; i < m_maxIterations; i++) {
             m_computeShader.SetInt("_iteration", i);
-            Dispatch();
+            m_computeShader.Dispatch(m_kernelRecord, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
         }
 
         //Run validation:
@@ -178,16 +169,16 @@ public class ReducedModel : MonoBehaviour {
 
             for (int i = 0; i < m_maxIterations; i++) {
                 m_computeShader.SetInt("_iteration", i);
-                Dispatch();
+                m_computeShader.Dispatch(m_kernel, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
             }
 
-            errorComputeBuffer.GetData(errorData);
+            errorDataComputebuffer.GetData(m_particlesError);
 
-            Debug.Log("Error: " + errorData[0]);
+            //Debug.Log("Error: " + m_particlesError[0].error);
 
             float sum = 0f;
-            for (int i = 0; i < errorData.Length; i++) {
-                float error = errorData[i];
+            for (int i = 0; i < m_particlesError.Length; i++) {
+                float error = m_particlesError[i].error;
                 //if (error > 0.001f) {
                 //    Debug.Log("Error: " + error);
                 //}
@@ -206,9 +197,9 @@ public class ReducedModel : MonoBehaviour {
             //Run another compute dispatch where we use the sum to determine the gradient. And then do everything again until the error is very small.
             //It shouldn't be necessary to actually do the division since that just gives you a correct error. We're only interested in optimizing it, so division I assume is unnecessary.
 
-            errorComputeBuffer.GetData(errorData);
+            errorDataComputebuffer.GetData(m_particlesError);
 
-            Debug.Log("Error: " + errorData[0]);
+            Debug.Log("Error: " + m_particlesError[0].error);
 
         }
 
@@ -241,7 +232,7 @@ public class ReducedModel : MonoBehaviour {
     private void OnRenderObject()
     {
         m_computeShader.SetInt("_iteration", m_iteration);
-        Dispatch();
+        m_computeShader.Dispatch(m_kernel, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
 
         //m_currentTime += Time.deltaTime;
         //if (m_currentTime >= m_updateFrequency)
@@ -262,13 +253,11 @@ public class ReducedModel : MonoBehaviour {
     }*/
 
     void OnDestroy() {
-        positionComputebuffer.Release();
-        velocityComputebuffer.Release();
+        particleComputebuffer.Release();
+        errorDataComputebuffer.Release();
         nodesComputeBuffer.Release();
-        positionRecordComputebuffer.Release();
-        errorComputeBuffer.Release();
     }
-    private void Dispatch()
+    /*private void Dispatch()
     {
         float deltaTime = Time.fixedTime - m_lastFrameTime;
 
@@ -277,5 +266,5 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetFloat("deltaTime", deltaTime*1.0f);
 
         m_computeShader.Dispatch(m_kernel, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
-    }
+    }*/
 }

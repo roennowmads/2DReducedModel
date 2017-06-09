@@ -19,9 +19,13 @@
 			#include "UnityCG.cginc"
 			#pragma target es3.1
 
-			StructuredBuffer<float3> _Positions;
-			StructuredBuffer<float3> _Velocities;
-			StructuredBuffer<float> _Error;
+			struct Particle {
+				float3 position;
+				float3 velocity;
+			};
+
+			StructuredBuffer<Particle> _ParticleData;
+			//StructuredBuffer<float> _Error;
 
 			uniform matrix model;
 			uniform float4 trans;
@@ -49,7 +53,7 @@
 				v2f o;
 
 				uint quadId = v.id;
-				float4 particlePos = -float4(_Positions[quadId].xyz, 1.0);
+				float4 particlePos = -float4(_ParticleData[quadId].position, 1.0);
 				//particlePos.z += 20.0;
 
 				o.vertex = mul(model, particlePos);
@@ -57,7 +61,7 @@
 				o.vertex = UnityWorldToClipPos(o.vertex.xyz);
 
 				//float speed = length(_Velocities[quadId]);
-				o.color = fixed3(_Error[quadId + _iteration * _PointsCount], 0.0, 0.0) + 0.1;//(normalize(_Velocities[quadId]) + 1.0) * 0.5;
+				o.color = fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5);
 
 				return o;
 			}

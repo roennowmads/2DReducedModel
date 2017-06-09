@@ -4,7 +4,12 @@
 //From Nvidia DirectCompute Optimizations and best Practices 2010:
 // http://on-demand.gputechconf.com/gtc/2010/presentations/S12312-DirectCompute-Pre-Conference-Tutorial.pdf
 
-RWStructuredBuffer<float> g_data;
+struct ErrorData {
+	float3 recordedPosition;
+	float error;
+};
+
+RWStructuredBuffer<ErrorData> g_data;
 #define groupDim_x 256
 groupshared float sdata[groupDim_x];
 [numthreads(groupDim_x, 1, 1)]
@@ -14,7 +19,7 @@ void reduce1( uint3	threadIdx	: SV_GroupThreadID,
 	// each thread loads one element from global to shared mem
 	unsigned int tid = threadIdx.x;
 	unsigned int i = groupIdx.x	* groupDim_x + threadIdx.x;
-	sdata[tid] = g_data[i];
+	sdata[tid] = g_data[i].error;
 	GroupMemoryBarrierWithGroupSync();
 	// do reduction in shared mem
 	for (unsigned int s = 1; s < groupDim_x; s *= 2) {
@@ -25,7 +30,7 @@ void reduce1( uint3	threadIdx	: SV_GroupThreadID,
 		GroupMemoryBarrierWithGroupSync();
 	}
 	// write result for this block to global mem
-	if (tid == 0) g_data[groupIdx.x] = sdata[0];
+	if (tid == 0) g_data[groupIdx.x].error = sdata[0];
 }
 
 

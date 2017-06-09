@@ -1,5 +1,7 @@
 ﻿// Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel CSMain
+#pragma kernel record
+
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
@@ -9,11 +11,20 @@ struct Node {
 	float force;
 };
 
-RWStructuredBuffer<float3> _Positions;
-RWStructuredBuffer<float3> _Velocities;
+struct Particle {
+	float3 position;
+	float3 velocity;
+};
+
+struct ErrorData {
+	float3 recordedPosition;
+	float error;
+};
+
+RWStructuredBuffer<Particle> _ParticleData;
+RWStructuredBuffer<ErrorData> _ErrorData;
+
 RWStructuredBuffer<Node> _Nodes;
-RWStructuredBuffer<float3> _PositionsRecord;
-RWStructuredBuffer<float> _Error;
 
 #define thread_group_size_x 1
 #define thread_group_size_y 1
@@ -24,66 +35,64 @@ static float3 g = float3(-0.0000918, 0.0, 0.0);
 float deltaTime;
 int _particleCount;
 int _iteration;
-bool _recording;
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-
-	// TODO: insert actual code here!
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
-	int idx = id.x + 256 * id.y; //(id.y + 1 * id.z);
-
-	//float spacing = 1.0;
-
-	if (_recording) {
-		float3 position = _Positions[idx].xyz;
-		float3 velocity = _Velocities[idx].xyz;
-
-		float3 sum_vel = float3(0, 0, 0);
-		for (int i = 0; i < 6; i++) {
-			float3 node_pos = _Nodes[i].pos;
-			float distanceToNode = max(2.0, distance(node_pos, position));
-			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
-			sum_vel = sum_vel + deltaVelocity;
-		}
-
-		velocity += (sum_vel / 6.0) * 0.5;
-		velocity += g;
-		float damping = 0.995;
-		velocity = velocity * damping;
-
-		_Positions[idx].xyz = position + velocity;
-		_Velocities[idx].xyz = velocity;
-
-		_PositionsRecord[idx + _iteration * _particleCount] = _Positions[idx].xyz;
-	}
-	else {
-		float3 recordedPosition = _PositionsRecord[idx + _iteration * _particleCount];
+	const unsigned int idx = id.x + 256 * id.y; //(id.y + 1 * id.z);
+	const unsigned int recordingIndex = idx + _iteration * _particleCount;
+	float3 recordedPosition = _ErrorData[recordingIndex].recordedPosition;
 		
+	float3 position = _ParticleData[idx].position;
+	float3 velocity = _ParticleData[idx].velocity;
 
-		float3 position = _Positions[idx].xyz;
-		float3 velocity = _Velocities[idx].xyz;
-
-		float3 sum_vel = float3(0, 0, 0);
-		for (int i = 0; i < 3; i++) {
-			float3 node_pos = _Nodes[i].pos;
-			float distanceToNode = max(2.0, distance(node_pos, position));
-			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
-			sum_vel = sum_vel + deltaVelocity;
-		}
-
-		velocity += (sum_vel / 6.0) * 0.5;
-		velocity += g;
-		float damping = 0.995;
-		velocity = velocity * damping;
-
-		_Positions[idx].xyz = position + velocity;
-
-		_Velocities[idx].xyz = velocity;
-
-		_Error[idx + _iteration * _particleCount] = distance(_Positions[idx], recordedPosition)*1.0;//pow(abs(_Positions[idx] - recordedPosition), 1.0); //pow(distance(_Positions[idx], recordedPosition), 20.0);
-
-		//_iteration++;
+	float3 sum_vel = float3(0, 0, 0);
+	for (int i = 0; i < 3; i++) {
+		float3 node_pos = _Nodes[i].pos;
+		float distanceToNode = max(2.0, distance(node_pos, position));
+		float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+		sum_vel = sum_vel + deltaVelocity;
 	}
+
+	velocity += (sum_vel / 6.0) * 0.5;
+	velocity += g;
+	float damping = 0.995;
+	velocity = velocity * damping;
+
+	position += velocity;
+	_ParticleData[idx].position = position;
+	_ParticleData[idx].velocity = velocity;
+	
+	_ErrorData[recordingIndex].error = distance(position, recordedPosition);//pow(abs(_Positions[idx] - recordedPosition), 1.0); //pow(distance(_Positions[idx], recordedPosition), 20.0);
 }
+
+
+[numthreads(thread_group_size_x, thread_group_size_y, 1)]
+void record(uint3 id : SV_DispatchThreadID)
+{
+	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
+	const unsigned int idx = id.x + 256 * id.y; //(id.y + 1 * id.z);
+
+	float3 position = _ParticleData[idx].position;
+	float3 velocity = _ParticleData[idx].velocity;
+
+	float3 sum_vel = float3(0, 0, 0);
+	for (int i = 0; i < 6; i++) {
+		float3 node_pos = _Nodes[i].pos;
+		float distanceToNode = max(2.0, distance(node_pos, position));
+		float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+		sum_vel = sum_vel + deltaVelocity;
+	}
+
+	velocity += (sum_vel / 6.0) * 0.5;
+	velocity += g;
+	float damping = 0.995;
+	velocity = velocity * damping;
+
+	_ParticleData[idx].position = position + velocity;
+	_ParticleData[idx].velocity = velocity;
+
+	_ErrorData[idx + _iteration * _particleCount].recordedPosition = _ParticleData[idx].position;
+}
+
