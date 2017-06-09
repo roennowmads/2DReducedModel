@@ -125,16 +125,17 @@ public class ReducedModel : MonoBehaviour {
     //https://github.com/yanatan16/golang-spsa/blob/master/spsa.go
     //https://en.wikipedia.org/wiki/Simultaneous_perturbation_stochastic_approximation
     float[] estimateGradient(Node[] nodes, int numberOfErrorVals, float deltaScale) {
-        float[] deltas = getRandomDeltas(nodes.Length);
+        float[] deltas = getRandomDeltas(nodes.Length/**4*/);
 
         //Positive direction:
         Node[] posNodes = (Node[])nodes.Clone();
 
         for (int i = 0; i < posNodes.Length; i++) {
-            posNodes[i].force += deltas[i]*deltaScale;
+            posNodes[i].force += deltas[i/**4*/]*deltaScale;
+            //Vector3 deltaPos = new Vector3(deltas[i*4+1], deltas[i*4+2], deltas[i*4+3]) * deltaScale*1000.0f;
+            //posNodes[i].pos += deltaPos;
         }
-
-        //run test.
+        //Run test:
         resetParticles();
         nodesComputeBuffer.SetData(posNodes);
 
@@ -157,10 +158,11 @@ public class ReducedModel : MonoBehaviour {
         Node[] negNodes = (Node[])nodes.Clone();
 
         for (int i = 0; i < posNodes.Length; i++) {
-            posNodes[i].force -= deltas[i]*deltaScale;
+            posNodes[i].force -= deltas[i/**4*/]*deltaScale;
+            //Vector3 deltaPos = new Vector3(deltas[i*4+1], deltas[i*4+2], deltas[i*4+3]) * deltaScale*1000.0f;
+            //posNodes[i].pos -= deltaPos;
         }
-
-        //run test.
+        //Run test:
         resetParticles();
         nodesComputeBuffer.SetData(negNodes);
 
@@ -179,7 +181,7 @@ public class ReducedModel : MonoBehaviour {
         //Debug.Log("Error Sum: " + sum);
 
         // Calculate estimated gradient
-        float[] gradient = new float[nodes.Length];
+        float[] gradient = new float[deltas.Length];
         for (int i = 0; i < gradient.Length; i++) {
             gradient[i] = (errorPos - errorNeg) / (2.0f * deltas[i]);
         }
@@ -250,7 +252,9 @@ public class ReducedModel : MonoBehaviour {
             float[] gradient = estimateGradient(testNodes, numberOfErrorVals, 0.0001f);
 
             for (int i = 0; i < testNodes.Length; i++) {
-                testNodes[i].force -= gradient[i] * gradientScale;
+                testNodes[i].force -= gradient[i/**4*/] * gradientScale;
+                //Vector3 deltaPos = new Vector3(gradient[i*4+1], gradient[i*4+2], gradient[i*4+3]) * gradientScale * 100.0f;
+                //testNodes[i].pos -= deltaPos;
             }
 
             errorDataComputebuffer.GetData(m_particlesError);
@@ -276,8 +280,11 @@ public class ReducedModel : MonoBehaviour {
         Debug.Log("Best Error: " + bestIteration + " " + bestError);
 
         for (int i = 0; i < bestNodes.Length; i++) {
-                Debug.Log(i + " " + bestNodes[i].force);
+                Debug.Log(i + " " + bestNodes[i].pos + " " + bestNodes[i].force);
         }
+
+        m_iteration = 0;
+        resetParticles();
 
         /*for (int j = 0; j < 5; j++) {
             m_iteration = 0;
@@ -329,8 +336,6 @@ public class ReducedModel : MonoBehaviour {
             Debug.Log("Error: " + m_particlesError[0].error);
 
         }*/
-        m_iteration = 0;
-        resetParticles();
 
     }
 	
