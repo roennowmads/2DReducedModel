@@ -10,7 +10,7 @@ struct ErrorData {
 };
 
 RWStructuredBuffer<ErrorData> g_data;
-#define groupDim_x 256
+#define groupDim_x 1024
 groupshared float sdata[groupDim_x];
 [numthreads(groupDim_x, 1, 1)]
 void reduce1( uint3	threadIdx	: SV_GroupThreadID,
