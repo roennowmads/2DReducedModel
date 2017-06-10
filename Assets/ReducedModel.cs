@@ -326,9 +326,9 @@ public class ReducedModel : MonoBehaviour {
 
         //Run test:
         nodesComputeBuffer.SetData(dirNodes);
-        for (int i = 0; i < m_maxIterations; i++)
+        //for (int i = 0; i < m_maxIterations; i++)
         {
-            m_computeShader.SetInt("_iteration", i);
+            m_computeShader.SetInt("_maxIterations", m_maxIterations);
             m_computeShader.Dispatch(m_kernel, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
         }
 
@@ -367,9 +367,9 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void gpuRecordSimulation(Node[] trainingNodes) {
-        for (int i = 0; i < m_maxIterations; i++)
+        //for (int i = 0; i < m_maxIterations; i++)
         {
-            m_computeShader.SetInt("_iteration", i);
+            m_computeShader.SetInt("_maxIterations", m_maxIterations);
             m_computeShader.Dispatch(m_kernelRecord, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
         }
         //Reset particles but not the recorded particles:
@@ -479,6 +479,7 @@ public class ReducedModel : MonoBehaviour {
         gpuTrainValidateModel(testNodes);
 
         m_iteration = 0;
+        m_computeShader.SetInt("_maxIterations", 1);
         //resetParticles();
 
         /*for (int j = 0; j < 5; j++) {
