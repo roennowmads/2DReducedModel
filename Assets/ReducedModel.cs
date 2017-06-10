@@ -55,6 +55,194 @@ public class ReducedModel : MonoBehaviour {
         public float error;
     };
 
+
+    void cpuRun (uint id, uint iteration, Node[] nodes, Vector3 g) {
+        Vector3 recordedPosition = m_particlesError[id + iteration * m_pointsCount].recordedPosition;
+
+        Vector3 position = m_particles[id].position;
+        Vector3 velocity = m_particles[id].velocity;
+
+        Vector3 sum_vel = new Vector3(0, 0, 0);
+        for (int i = 0; i < 3; i++)
+        {
+            Vector3 node_pos = nodes[i].pos;
+            float distanceToNode = Mathf.Max(2.0f, Vector3.Distance(node_pos, position));
+            Vector3 deltaVelocity = Vector3.Normalize(node_pos - position) * nodes[i].force / Mathf.Pow(distanceToNode, 1.7f);
+            sum_vel = sum_vel + deltaVelocity;
+        }
+
+        velocity += (sum_vel / 6.0f) * 0.5f;
+        velocity += g;
+        float damping = 0.995f;
+        velocity = velocity * damping;
+
+        position += velocity;
+        m_particles[id].position = position;
+        m_particles[id].velocity = velocity;
+
+        float errorDistance = Vector3.Distance(position, recordedPosition);
+
+        m_particlesError[id + iteration * m_pointsCount].error = errorDistance;
+    }
+
+    void cpuRecord (uint id, uint iteration, Node[] nodes, Vector3 g) {
+        Vector3 position = m_particles[id].position;
+        Vector3 velocity = m_particles[id].velocity;
+
+        Vector3 sum_vel = new Vector3(0, 0, 0);
+        for (int i = 0; i < 3; i++) {
+            Vector3 node_pos = nodes[i].pos;
+            float distanceToNode = Mathf.Max(2.0f, Vector3.Distance(node_pos, position));
+            Vector3 deltaVelocity = Vector3.Normalize(node_pos - position) * nodes[i].force / Mathf.Pow(distanceToNode, 1.7f);
+            sum_vel = sum_vel + deltaVelocity;
+        }
+
+        velocity += (sum_vel / 6.0f) * 0.5f;
+        velocity += g;
+        float damping = 0.995f;
+        velocity = velocity * damping;
+
+        m_particles[id].position = position + velocity;
+        m_particles[id].velocity = velocity;
+
+        m_particlesError[id + iteration * m_pointsCount].recordedPosition = m_particles[id].position;
+    }
+
+    void cpuRunAll(Node[] nodes, uint iteration)
+    {
+        Vector3 g = new Vector3(-0.0000918f, 0.0f, 0.0f);
+        for (uint i = 0; i < m_particles.Length; i++)
+        {
+            cpuRun(i, iteration, nodes, g);
+        }
+    }
+
+    void cpuRecordAll(Node[] nodes, uint iteration) {
+        Vector3 g = new Vector3(-0.0000918f, 0.0f, 0.0f);
+        for (uint i = 0; i < m_particles.Length; i++)
+        {
+            cpuRecord(i, iteration, nodes, g);
+        }
+    }
+
+    float cpuErrorDirection(Node[] nodes, float[] deltas, float deltaScale, float direction) {
+        Node[] dirNodes = (Node[])nodes.Clone();
+
+        for (int i = 0; i < dirNodes.Length; i++)
+        {
+            dirNodes[i].force += direction * deltas[i/**4*/] * deltaScale;
+            //Vector3 deltaPos = new Vector3(deltas[i*4+1], deltas[i*4+2], deltas[i*4+3]) * deltaScale*1000.0f;
+            //posNodes[i].pos += deltaPos;
+        }
+
+        //Run test:
+        Particle[] particlesOld = (Particle[])m_particles.Clone();
+
+        for (uint i = 0; i < m_maxIterations; i++)
+        {
+            cpuRunAll(dirNodes, i);
+        }
+
+        float sum = 0f;
+        for (int i = 0; i < m_particlesError.Length; i++)
+        {
+            float error = m_particlesError[i].error;
+            sum += error;
+        }
+
+        m_particles = particlesOld;
+
+        return sum;
+    }
+
+    //https://github.com/yanatan16/golang-spsa/blob/master/spsa.go
+    //https://en.wikipedia.org/wiki/Simultaneous_perturbation_stochastic_approximation
+    float[] cpuEstimateGradient(Node[] nodes, int numberOfErrorVals, float deltaScale)
+    {
+        float[] deltas = getRandomDeltas(nodes.Length);
+
+        float errorPos = cpuErrorDirection(nodes, deltas, deltaScale, 1.0f);
+        float errorNeg = cpuErrorDirection(nodes, deltas, deltaScale, -1.0f);
+
+        // Calculate estimated gradient
+        float[] gradient = new float[deltas.Length];
+        for (int i = 0; i < gradient.Length; i++)
+        {
+            gradient[i] = (errorPos - errorNeg) / (2.0f * deltas[i]);
+            Debug.Log(errorPos + " " + errorNeg + " " + gradient[i]);
+        }
+
+        return gradient;
+    }
+
+    void cpuRecordSimulation(Node[] trainingNodes)
+    {
+        Particle[] particlesOld = (Particle[])m_particles.Clone();
+
+        for (uint i = 0; i < m_maxIterations; i++)
+        {
+            cpuRecordAll(trainingNodes, i);
+        }
+        m_particles = particlesOld;
+    }
+
+    void cpuTrainValidateModel(Node[] testNodes)
+    {
+        float gradientScale = 0.000001f;
+        int numberOfErrorVals = m_maxIterations * m_pointsCount;
+
+        float bestError = float.PositiveInfinity;
+        int bestIteration = 0;
+        Node[] bestNodes = (Node[])testNodes.Clone();
+
+        for (int j = 0; j < 50; j++)
+        {
+            //m_iteration = j;
+            float[] gradient = cpuEstimateGradient(testNodes, numberOfErrorVals, 0.0001f);
+
+            Debug.Log("New Gradient: " + gradient[0] + " " + gradient[1] + " " + gradient[2]);
+
+            for (int i = 0; i < testNodes.Length; i++)
+            {
+                testNodes[i].force -= gradient[i] * gradientScale;
+                //Vector3 deltaPos = new Vector3(gradient[i*4+1], gradient[i*4+2], gradient[i*4+3]) * gradientScale * 100.0f;
+                //testNodes[i].pos -= deltaPos;
+            }
+
+            Debug.Log("Test nodes: " + testNodes[0].force);
+            Debug.Log("Test nodes: " + testNodes[1].force);
+            Debug.Log("Test nodes: " + testNodes[2].force);
+
+            float sum = 0f;
+            for (int i = 0; i < m_particlesError.Length; i++)
+            {
+                float error = m_particlesError[i].error;
+                sum += error;
+            }
+
+            float avgError = sum / numberOfErrorVals;
+            if (avgError < bestError)
+            {
+                bestError = avgError;
+                bestIteration = j;
+                bestNodes = (Node[])testNodes.Clone();
+            }
+
+            Debug.Log(j + " Error: " + sum / numberOfErrorVals);
+            if (avgError < 0.005f)
+            {
+                //break;
+            }
+        }
+
+        Debug.Log("Best Error: " + bestIteration + " " + bestError);
+
+        for (int i = 0; i < bestNodes.Length; i++)
+        {
+            Debug.Log(i + " " + bestNodes[i].pos + " " + bestNodes[i].force);
+        }
+    }
+
     void initializeParticles() {
         m_dimensionWidth = 256;
         m_dimensionHeight = 1;
@@ -122,71 +310,126 @@ public class ReducedModel : MonoBehaviour {
         return randomDeltas;
     }
 
-    //https://github.com/yanatan16/golang-spsa/blob/master/spsa.go
-    //https://en.wikipedia.org/wiki/Simultaneous_perturbation_stochastic_approximation
-    float[] estimateGradient(Node[] nodes, int numberOfErrorVals, float deltaScale) {
-        float[] deltas = getRandomDeltas(nodes.Length/**4*/);
+    float gpuErrorDirection(Node[] nodes, float[] deltas, float deltaScale, float direction)
+    {
+        Node[] dirNodes = (Node[])nodes.Clone();
 
-        //Positive direction:
-        Node[] posNodes = (Node[])nodes.Clone();
-
-        for (int i = 0; i < posNodes.Length; i++) {
-            posNodes[i].force += deltas[i/**4*/]*deltaScale;
+        for (int i = 0; i < dirNodes.Length; i++)
+        {
+            dirNodes[i].force += direction * deltas[i/**4*/] * deltaScale;
             //Vector3 deltaPos = new Vector3(deltas[i*4+1], deltas[i*4+2], deltas[i*4+3]) * deltaScale*1000.0f;
             //posNodes[i].pos += deltaPos;
         }
-        //Run test:
-        resetParticles();
-        nodesComputeBuffer.SetData(posNodes);
 
-        for (int i = 0; i < m_maxIterations; i++) {
+        //Store the current state of the particles somehow
+        particleComputebuffer.GetData(m_particles);
+
+        //Run test:
+        nodesComputeBuffer.SetData(dirNodes);
+        for (int i = 0; i < m_maxIterations; i++)
+        {
             m_computeShader.SetInt("_iteration", i);
             m_computeShader.Dispatch(m_kernel, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
         }
 
         errorDataComputebuffer.GetData(m_particlesError);
+
+        //Restore the previous state of the particles somehow
+        particleComputebuffer.SetData(m_particles);
+
         float sum = 0f;
-        for (int i = 0; i < m_particlesError.Length; i++) {
+        for (int i = 0; i < m_particlesError.Length; i++)
+        {
             float error = m_particlesError[i].error;
             sum += error;
         }
-        float errorPos = sum /*/ numberOfErrorVals*/;
-        //Debug.Log("Error Sum: " + sum);
 
+        return sum;
+    }
 
-        //Negative direction:
-        Node[] negNodes = (Node[])nodes.Clone();
+    //https://github.com/yanatan16/golang-spsa/blob/master/spsa.go
+    //https://en.wikipedia.org/wiki/Simultaneous_perturbation_stochastic_approximation
+    float[] gpuEstimateGradient(Node[] nodes, int numberOfErrorVals, float deltaScale) {
+        float[] deltas = getRandomDeltas(nodes.Length);
 
-        for (int i = 0; i < posNodes.Length; i++) {
-            posNodes[i].force -= deltas[i/**4*/]*deltaScale;
-            //Vector3 deltaPos = new Vector3(deltas[i*4+1], deltas[i*4+2], deltas[i*4+3]) * deltaScale*1000.0f;
-            //posNodes[i].pos -= deltaPos;
-        }
-        //Run test:
-        resetParticles();
-        nodesComputeBuffer.SetData(negNodes);
-
-        for (int i = 0; i < m_maxIterations; i++) {
-            m_computeShader.SetInt("_iteration", i);
-            m_computeShader.Dispatch(m_kernel, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
-        }
-
-        errorDataComputebuffer.GetData(m_particlesError);
-        sum = 0f;
-        for (int i = 0; i < m_particlesError.Length; i++) {
-            float error = m_particlesError[i].error;
-            sum += error;
-        }
-        float errorNeg = sum /*/ numberOfErrorVals*/;
-        //Debug.Log("Error Sum: " + sum);
+        float errorPos = gpuErrorDirection(nodes, deltas, deltaScale, 1.0f) /*/ numberOfErrorVals*/;
+        float errorNeg = gpuErrorDirection(nodes, deltas, deltaScale, -1.0f) /*/ numberOfErrorVals*/;
 
         // Calculate estimated gradient
         float[] gradient = new float[deltas.Length];
-        for (int i = 0; i < gradient.Length; i++) {
+        for (int i = 0; i < gradient.Length; i++)
+        {
             gradient[i] = (errorPos - errorNeg) / (2.0f * deltas[i]);
+            Debug.Log(errorPos + " " + errorNeg + " " + gradient[i]);
         }
 
         return gradient;
+    }
+
+    void gpuRecordSimulation(Node[] trainingNodes) {
+        for (int i = 0; i < m_maxIterations; i++)
+        {
+            m_computeShader.SetInt("_iteration", i);
+            m_computeShader.Dispatch(m_kernelRecord, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+        }
+        //Reset particles but not the recorded particles:
+        resetParticles();
+    }
+
+    void gpuTrainValidateModel(Node[] testNodes) {
+        float gradientScale = 0.000001f;
+        int numberOfErrorVals = m_maxIterations * m_pointsCount;
+
+        float bestError = float.PositiveInfinity;
+        int bestIteration = 0;
+        Node[] bestNodes = (Node[])testNodes.Clone();
+
+        for (int j = 0; j < 500; j++)
+        {
+            //m_iteration = j;
+            float[] gradient = gpuEstimateGradient(testNodes, numberOfErrorVals, 0.0001f);
+
+            Debug.Log("New Gradient: " + gradient[0] + " " + gradient[1] + " " + gradient[2]);
+
+            for (int i = 0; i < testNodes.Length; i++)
+            {
+                testNodes[i].force -= gradient[i] * gradientScale;
+                //Vector3 deltaPos = new Vector3(gradient[i*4+1], gradient[i*4+2], gradient[i*4+3]) * gradientScale * 100.0f;
+                //testNodes[i].pos -= deltaPos;
+            }
+
+            Debug.Log("Test nodes: " + testNodes[0].force);
+            Debug.Log("Test nodes: " + testNodes[1].force);
+            Debug.Log("Test nodes: " + testNodes[2].force);
+
+            float sum = 0f;
+            for (int i = 0; i < m_particlesError.Length; i++)
+            {
+                float error = m_particlesError[i].error;
+                sum += error;
+            }
+
+            float avgError = sum / numberOfErrorVals;
+            if (avgError < bestError)
+            {
+                bestError = avgError;
+                bestIteration = j;
+                bestNodes = (Node[])testNodes.Clone();
+            }
+
+            Debug.Log(j + " Error: " + sum / numberOfErrorVals);
+            if (avgError < 0.005f)
+            {
+                //break;
+            }
+        }
+
+        Debug.Log("Best Error: " + bestIteration + " " + bestError);
+
+        for (int i = 0; i < bestNodes.Length; i++)
+        {
+            Debug.Log(i + " " + bestNodes[i].pos + " " + bestNodes[i].force);
+        }
     }
 
     void Start () {
@@ -227,64 +470,16 @@ public class ReducedModel : MonoBehaviour {
 
         m_computeShader.SetInt("_particleCount", m_pointsCount);
 
-        //m_computeShader.SetBool("_recording", false);
-        //Record simulation:
-        m_computeShader.SetBool("_recording", true);
-        
-        for (int i = 0; i < m_maxIterations; i++) {
-            m_computeShader.SetInt("_iteration", i);
-            m_computeShader.Dispatch(m_kernelRecord, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
-        }
+        //cpuRecordSimulation(trainingNodes);
 
-        //Run validation:
-        m_computeShader.SetBool("_recording", false);
+        //cpuTrainValidateModel(testNodes);
 
-        //float[] gradient = estimateGradient(testNodes, 0.0001f);
+        gpuRecordSimulation(trainingNodes);
 
-        float gradientScale = 0.000001f;
-        int numberOfErrorVals = m_maxIterations * m_pointsCount;
-
-        float bestError = float.PositiveInfinity;
-        int bestIteration = 0;
-        Node[] bestNodes = (Node[])testNodes.Clone();
-
-        for (int j = 0; j < 500; j++) {
-            float[] gradient = estimateGradient(testNodes, numberOfErrorVals, 0.0001f);
-
-            for (int i = 0; i < testNodes.Length; i++) {
-                testNodes[i].force -= gradient[i/**4*/] * gradientScale;
-                //Vector3 deltaPos = new Vector3(gradient[i*4+1], gradient[i*4+2], gradient[i*4+3]) * gradientScale * 100.0f;
-                //testNodes[i].pos -= deltaPos;
-            }
-
-            errorDataComputebuffer.GetData(m_particlesError);
-            float sum = 0f;
-            for (int i = 0; i < m_particlesError.Length; i++) {
-                float error = m_particlesError[i].error;
-                sum += error;
-            }
-
-            float avgError = sum / numberOfErrorVals;
-            if (avgError < bestError) {
-                bestError = avgError;
-                bestIteration = j;
-                bestNodes = (Node[])testNodes.Clone();
-            }
-
-            Debug.Log(j + " Error: " + sum / numberOfErrorVals);
-            if (avgError < 0.01f) {
-               break;
-            }
-        }
-
-        Debug.Log("Best Error: " + bestIteration + " " + bestError);
-
-        for (int i = 0; i < bestNodes.Length; i++) {
-                Debug.Log(i + " " + bestNodes[i].pos + " " + bestNodes[i].force);
-        }
+        gpuTrainValidateModel(testNodes);
 
         m_iteration = 0;
-        resetParticles();
+        //resetParticles();
 
         /*for (int j = 0; j < 5; j++) {
             m_iteration = 0;

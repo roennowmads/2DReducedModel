@@ -64,7 +64,9 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 	_ParticleData[idx].position = position;
 	_ParticleData[idx].velocity = velocity;
 	
-	_ErrorData[recordingIndex].error = distance(position, recordedPosition);//pow(abs(_Positions[idx] - recordedPosition), 1.0); //pow(distance(_Positions[idx], recordedPosition), 20.0);
+	float errorDistance = distance(position, recordedPosition);
+
+	_ErrorData[recordingIndex].error = errorDistance;//pow(abs(_Positions[idx] - recordedPosition), 1.0); //pow(distance(_Positions[idx], recordedPosition), 20.0);
 }
 
 
@@ -78,7 +80,7 @@ void record(uint3 id : SV_DispatchThreadID)
 	float3 velocity = _ParticleData[idx].velocity;
 
 	float3 sum_vel = float3(0, 0, 0);
-	for (int i = 0; i < 6; i++) {
+	for (int i = 0; i < 3; i++) {
 		float3 node_pos = _Nodes[i].pos;
 		float distanceToNode = max(2.0, distance(node_pos, position));
 		float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
