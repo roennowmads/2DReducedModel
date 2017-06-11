@@ -34,7 +34,6 @@
 			uniform uint _FrameTime;
 			uniform uint _Magnitude;
 			uniform int _TextureSwitchFrameNumber;
-			//uniform int _iteration;
 
 			struct appdata
 			{

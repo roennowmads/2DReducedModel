@@ -7,6 +7,7 @@ using System.IO;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 using System;
+using System.Linq;
 
 public class ReducedModel : MonoBehaviour {  
     public float m_frameSpeed = 5.0f;
@@ -20,7 +21,7 @@ public class ReducedModel : MonoBehaviour {
 
     private int m_textureSwitchFrameNumber = -1;
 
-    private ComputeBuffer nodesComputeBuffer, errorDataComputebuffer;
+    private ComputeBuffer nodesComputeBuffer, errorDataComputebuffer, recordedDataComputebuffer;
     private ComputeBuffer[] particleInOutBuffers;
 
     private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth;
@@ -36,7 +37,9 @@ public class ReducedModel : MonoBehaviour {
     private int m_kernelValidate, m_kernelSum, m_kernelRecord, m_kernelRun;
 
     private Particle[] m_particles;
-    private ErrorData[] m_particlesError;
+    private float[] m_particlesError;
+    private Vector3[] m_particlesRecorded;
+
 
     private int bufferSwitch = 0;
 
@@ -54,18 +57,12 @@ public class ReducedModel : MonoBehaviour {
         public Vector3 velocity;
     };
 
-    struct ErrorData {
-        public Vector3 recordedPosition;
-        public float error;
-    };
-
-
     void incrementBufferSwitch() {
         bufferSwitch = (bufferSwitch + 1) % 2;
     }
 
     void cpuRun (uint id, uint iteration, Node[] nodes, Vector3 g) {
-        Vector3 recordedPosition = m_particlesError[id + iteration * m_pointsCount].recordedPosition;
+        Vector3 recordedPosition = m_particlesRecorded[id + iteration * m_pointsCount];
 
         Vector3 position = m_particles[id].position;
         Vector3 velocity = m_particles[id].velocity;
@@ -90,7 +87,7 @@ public class ReducedModel : MonoBehaviour {
 
         float errorDistance = Vector3.Distance(position, recordedPosition);
 
-        m_particlesError[id + iteration * m_pointsCount].error = errorDistance;
+        m_particlesError[id + iteration * m_pointsCount] = errorDistance;
     }
 
     void cpuRecord (uint id, uint iteration, Node[] nodes, Vector3 g) {
@@ -113,7 +110,7 @@ public class ReducedModel : MonoBehaviour {
         m_particles[id].position = position + velocity;
         m_particles[id].velocity = velocity;
 
-        m_particlesError[id + iteration * m_pointsCount].recordedPosition = m_particles[id].position;
+        m_particlesRecorded[id + iteration * m_pointsCount] = m_particles[id].position;
     }
 
     void cpuRunAll(Node[] nodes, uint iteration)
@@ -154,7 +151,7 @@ public class ReducedModel : MonoBehaviour {
         float sum = 0f;
         for (int i = 0; i < m_particlesError.Length; i++)
         {
-            float error = m_particlesError[i].error;
+            float error = m_particlesError[i];
             sum += error;
         }
 
@@ -224,7 +221,7 @@ public class ReducedModel : MonoBehaviour {
             float sum = 0f;
             for (int i = 0; i < m_particlesError.Length; i++)
             {
-                float error = m_particlesError[i].error;
+                float error = m_particlesError[i];
                 sum += error;
             }
 
@@ -257,12 +254,8 @@ public class ReducedModel : MonoBehaviour {
         m_dimensionDepth = 1;
 
         m_particles = new Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
-        m_particlesError = new ErrorData[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth * m_maxIterations];
-
-        for (int i = 0; i < m_particlesError.Length; i++) {
-            m_particlesError[i].recordedPosition = new Vector3();
-            m_particlesError[i].error = 0.0f;
-        }
+        //m_particlesRecorded = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth * m_maxIterations];
+        m_particlesError = new float[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
 
         Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
         
@@ -301,12 +294,17 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1]);
         m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[1]);
 
-        errorDataComputebuffer = new ComputeBuffer (m_particlesError.Length, Marshal.SizeOf(typeof(ErrorData)), ComputeBufferType.Default);
+        errorDataComputebuffer = new ComputeBuffer (m_particlesError.Length, Marshal.SizeOf(typeof(float)), ComputeBufferType.Default);
         errorDataComputebuffer.SetData(m_particlesError);
         m_pointRenderer.material.SetBuffer ("_ErrorData", errorDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelValidate, "_ErrorData", errorDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_ErrorData", errorDataComputebuffer);
         m_computeShaderSum.SetBuffer(m_kernelSum, "g_data", errorDataComputebuffer);
+
+        recordedDataComputebuffer = new ComputeBuffer(m_particlesError.Length * m_maxIterations, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.Default);
+        m_pointRenderer.material.SetBuffer("_RecordedData", recordedDataComputebuffer);
+        m_computeShader.SetBuffer(m_kernelValidate, "_RecordedData", recordedDataComputebuffer);
+        m_computeShader.SetBuffer(m_kernelRecord, "_RecordedData", recordedDataComputebuffer);
     }
 
     void resetParticles() {
@@ -350,7 +348,7 @@ public class ReducedModel : MonoBehaviour {
         float sum = 0f;
         for (int i = 0; i < m_particlesError.Length; i++)
         {
-            float error = m_particlesError[i].error;
+            float error = m_particlesError[i];
             sum += error;
         }
         return sum;
@@ -416,7 +414,7 @@ public class ReducedModel : MonoBehaviour {
             float sum = 0f;
             for (int i = 0; i < m_particlesError.Length; i++)
             {
-                float error = m_particlesError[i].error;
+                float error = m_particlesError[i];
                 sum += error;
             }
 
@@ -613,6 +611,7 @@ public class ReducedModel : MonoBehaviour {
         particleInOutBuffers[0].Release();
         particleInOutBuffers[1].Release();
         errorDataComputebuffer.Release();
+        recordedDataComputebuffer.Release();
         nodesComputeBuffer.Release();
     }
     /*private void Dispatch()
