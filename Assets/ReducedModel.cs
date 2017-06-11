@@ -43,7 +43,7 @@ public class ReducedModel : MonoBehaviour {
 
     private int bufferSwitch = 0;
 
-    struct Node {
+    public struct Node {
         public Vector3 pos;
         public float force;
         public Node(Vector3 pos, float force) {
@@ -52,7 +52,7 @@ public class ReducedModel : MonoBehaviour {
         }
     };
 
-    struct Particle {
+    public struct Particle {
         public Vector3 position;
         public Vector3 velocity;
     };
@@ -61,199 +61,12 @@ public class ReducedModel : MonoBehaviour {
         bufferSwitch = (bufferSwitch + 1) % 2;
     }
 
-    void cpuRun (uint id, uint iteration, Node[] nodes, Vector3 g) {
-        Vector3 recordedPosition = m_particlesRecorded[id + iteration * m_pointsCount];
-
-        Vector3 position = m_particles[id].position;
-        Vector3 velocity = m_particles[id].velocity;
-
-        Vector3 sum_vel = new Vector3(0, 0, 0);
-        for (int i = 0; i < 3; i++)
-        {
-            Vector3 node_pos = nodes[i].pos;
-            float distanceToNode = Mathf.Max(2.0f, Vector3.Distance(node_pos, position));
-            Vector3 deltaVelocity = Vector3.Normalize(node_pos - position) * nodes[i].force / Mathf.Pow(distanceToNode, 1.7f);
-            sum_vel = sum_vel + deltaVelocity;
-        }
-
-        velocity += (sum_vel / 6.0f) * 0.5f;
-        velocity += g;
-        float damping = 0.995f;
-        velocity = velocity * damping;
-
-        position += velocity;
-        m_particles[id].position = position;
-        m_particles[id].velocity = velocity;
-
-        float errorDistance = Vector3.Distance(position, recordedPosition);
-
-        m_particlesError[id + iteration * m_pointsCount] = errorDistance;
-    }
-
-    void cpuRecord (uint id, uint iteration, Node[] nodes, Vector3 g) {
-        Vector3 position = m_particles[id].position;
-        Vector3 velocity = m_particles[id].velocity;
-
-        Vector3 sum_vel = new Vector3(0, 0, 0);
-        for (int i = 0; i < 3; i++) {
-            Vector3 node_pos = nodes[i].pos;
-            float distanceToNode = Mathf.Max(2.0f, Vector3.Distance(node_pos, position));
-            Vector3 deltaVelocity = Vector3.Normalize(node_pos - position) * nodes[i].force / Mathf.Pow(distanceToNode, 1.7f);
-            sum_vel = sum_vel + deltaVelocity;
-        }
-
-        velocity += (sum_vel / 6.0f) * 0.5f;
-        velocity += g;
-        float damping = 0.995f;
-        velocity = velocity * damping;
-
-        m_particles[id].position = position + velocity;
-        m_particles[id].velocity = velocity;
-
-        m_particlesRecorded[id + iteration * m_pointsCount] = m_particles[id].position;
-    }
-
-    void cpuRunAll(Node[] nodes, uint iteration)
-    {
-        Vector3 g = new Vector3(-0.0000918f, 0.0f, 0.0f);
-        for (uint i = 0; i < m_particles.Length; i++)
-        {
-            cpuRun(i, iteration, nodes, g);
-        }
-    }
-
-    void cpuRecordAll(Node[] nodes, uint iteration) {
-        Vector3 g = new Vector3(-0.0000918f, 0.0f, 0.0f);
-        for (uint i = 0; i < m_particles.Length; i++)
-        {
-            cpuRecord(i, iteration, nodes, g);
-        }
-    }
-
-    float cpuErrorDirection(Node[] nodes, float[] deltas, float deltaScale, float direction) {
-        Node[] dirNodes = (Node[])nodes.Clone();
-
-        for (int i = 0; i < dirNodes.Length; i++)
-        {
-            dirNodes[i].force += direction * deltas[i/**4*/] * deltaScale;
-            //Vector3 deltaPos = new Vector3(deltas[i*4+1], deltas[i*4+2], deltas[i*4+3]) * deltaScale*1000.0f;
-            //posNodes[i].pos += deltaPos;
-        }
-
-        //Run test:
-        Particle[] particlesOld = (Particle[])m_particles.Clone();
-
-        for (uint i = 0; i < m_maxIterations; i++)
-        {
-            cpuRunAll(dirNodes, i);
-        }
-
-        float sum = 0f;
-        for (int i = 0; i < m_particlesError.Length; i++)
-        {
-            float error = m_particlesError[i];
-            sum += error;
-        }
-
-        m_particles = particlesOld;
-
-        return sum;
-    }
-
-    //https://github.com/yanatan16/golang-spsa/blob/master/spsa.go
-    //https://en.wikipedia.org/wiki/Simultaneous_perturbation_stochastic_approximation
-    float[] cpuEstimateGradient(Node[] nodes, int numberOfErrorVals, float deltaScale)
-    {
-        float[] deltas = getRandomDeltas(nodes.Length);
-
-        float errorPos = cpuErrorDirection(nodes, deltas, deltaScale, 1.0f);
-        float errorNeg = cpuErrorDirection(nodes, deltas, deltaScale, -1.0f);
-
-        // Calculate estimated gradient
-        float[] gradient = new float[deltas.Length];
-        for (int i = 0; i < gradient.Length; i++)
-        {
-            gradient[i] = (errorPos - errorNeg) / (2.0f * deltas[i]);
-            Debug.Log(errorPos + " " + errorNeg + " " + gradient[i]);
-        }
-
-        return gradient;
-    }
-
-    void cpuRecordSimulation(Node[] trainingNodes)
-    {
-        Particle[] particlesOld = (Particle[])m_particles.Clone();
-
-        for (uint i = 0; i < m_maxIterations; i++)
-        {
-            cpuRecordAll(trainingNodes, i);
-        }
-        m_particles = particlesOld;
-    }
-
-    void cpuTrainValidateModel(Node[] testNodes)
-    {
-        float gradientScale = 0.000001f;
-        int numberOfErrorVals = m_maxIterations * m_pointsCount;
-
-        float bestError = float.PositiveInfinity;
-        int bestIteration = 0;
-        Node[] bestNodes = (Node[])testNodes.Clone();
-
-        for (int j = 0; j < 50; j++)
-        {
-            //m_iteration = j;
-            float[] gradient = cpuEstimateGradient(testNodes, numberOfErrorVals, 0.0001f);
-
-            Debug.Log("New Gradient: " + gradient[0] + " " + gradient[1] + " " + gradient[2]);
-
-            for (int i = 0; i < testNodes.Length; i++)
-            {
-                testNodes[i].force -= gradient[i] * gradientScale;
-                //Vector3 deltaPos = new Vector3(gradient[i*4+1], gradient[i*4+2], gradient[i*4+3]) * gradientScale * 100.0f;
-                //testNodes[i].pos -= deltaPos;
-            }
-
-            Debug.Log("Test nodes: " + testNodes[0].force);
-            Debug.Log("Test nodes: " + testNodes[1].force);
-            Debug.Log("Test nodes: " + testNodes[2].force);
-
-            float sum = 0f;
-            for (int i = 0; i < m_particlesError.Length; i++)
-            {
-                float error = m_particlesError[i];
-                sum += error;
-            }
-
-            float avgError = sum / numberOfErrorVals;
-            if (avgError < bestError)
-            {
-                bestError = avgError;
-                bestIteration = j;
-                bestNodes = (Node[])testNodes.Clone();
-            }
-
-            Debug.Log(j + " Error: " + sum / numberOfErrorVals);
-            if (avgError < 0.005f)
-            {
-                //break;
-            }
-        }
-
-        Debug.Log("Best Error: " + bestIteration + " " + bestError);
-
-        for (int i = 0; i < bestNodes.Length; i++)
-        {
-            Debug.Log(i + " " + bestNodes[i].pos + " " + bestNodes[i].force);
-        }
-    }
-
     void initializeParticles() {
         m_dimensionWidth = 256;
         m_dimensionHeight = 1;
         m_dimensionDepth = 1;
 
-        m_particles = new Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
+        m_particles = new CPUParticles.Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
         //m_particlesRecorded = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth * m_maxIterations];
         m_particlesError = new float[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
 
@@ -471,7 +284,7 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetBuffer(m_kernelValidate, "_Nodes", nodesComputeBuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_Nodes", nodesComputeBuffer);
         m_computeShader.SetBuffer(m_kernelRun, "_Nodes", nodesComputeBuffer);
-
+        m_computeShader.SetInt("_particleCount", m_pointsCount);
         m_pointRenderer.material.SetInt("_PointsCount", m_pointsCount);
         float aspect = Camera.main.GetComponent<Camera>().aspect;
         m_pointRenderer.material.SetFloat("aspect", aspect);
@@ -481,14 +294,10 @@ public class ReducedModel : MonoBehaviour {
 
         Debug.Log("Number of points: " + m_pointsCount);
 
-        m_computeShader.SetInt("_particleCount", m_pointsCount);
-
-        //cpuRecordSimulation(trainingNodes);
-
-        //cpuTrainValidateModel(testNodes);
+        //CPUParticles.cpuRecordSimulation(trainingNodes, ref m_particles, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
+        //CPUParticles.cpuTrainValidateModel(testNodes, ref m_particles, ref m_particlesError, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
 
         gpuRecordSimulation(trainingNodes);
-
         gpuTrainValidateModel(testNodes);
 
         //m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
