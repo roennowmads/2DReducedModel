@@ -20,8 +20,7 @@ public class ReducedModel : MonoBehaviour {
 
     private int m_textureSwitchFrameNumber = -1;
 
-    private ComputeBuffer nodesComputeBuffer, errorDataComputebuffer, particleComputebuffer;
-
+    private ComputeBuffer nodesComputeBuffer, errorDataComputebuffer;
     private ComputeBuffer[] particleInOutBuffers;
 
     private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth;
@@ -265,8 +264,6 @@ public class ReducedModel : MonoBehaviour {
             m_particlesError[i].error = 0.0f;
         }
 
-        //m_points = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
-        //m_velocities = new Vector3[m_points.Length];
         Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
         
         float deltaPos = 0.05f;
@@ -291,23 +288,16 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetInt("_dimensionWidth", m_dimensionWidth);
         m_computeShader.SetInt("_maxIterations", m_maxIterations);
 
-        //particleComputebuffer = new ComputeBuffer (m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
-        //particleComputebuffer.SetData(m_particles);
-        //m_pointRenderer.material.SetBuffer ("_ParticleData", particleComputebuffer);
-        //m_computeShader.SetBuffer(m_kernelValidate, "_ParticleData", particleComputebuffer);
-        //m_computeShader.SetBuffer(m_kernelRecord, "_ParticleData", particleComputebuffer);
-        //m_computeShader.SetBuffer(m_kernelRun, "_ParticleData", particleComputebuffer);
-
         particleInOutBuffers = new ComputeBuffer[2];
 
         particleInOutBuffers[0] = new ComputeBuffer(m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
         particleInOutBuffers[0].SetData(m_particles);
         m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataIn", particleInOutBuffers[0]);
         m_computeShader.SetBuffer(m_kernelRecord, "_ParticleDataIn", particleInOutBuffers[0]);
+        m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[0]);
 
         particleInOutBuffers[1] = new ComputeBuffer(m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
         particleInOutBuffers[1].SetData(m_particles);
-        //m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataOut", particleInOutBuffers[1]);
         m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1]);
         m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[1]);
 
@@ -348,8 +338,7 @@ public class ReducedModel : MonoBehaviour {
             //posNodes[i].pos += deltaPos;
         }
 
-        //Store the current state of the particles somehow
-        //particleComputebuffer.GetData(m_particles);
+        //We don't need to store/restore particle state, because the validate kernel doesn't modify particle state.
 
         //Run test:
         nodesComputeBuffer.SetData(dirNodes);
@@ -358,17 +347,12 @@ public class ReducedModel : MonoBehaviour {
         //No double buffer switching here in order to preserve the original.
 
         errorDataComputebuffer.GetData(m_particlesError);
-
-        //Restore the previous state of the particles somehow
-        //particleComputebuffer.SetData(m_particles);
-
         float sum = 0f;
         for (int i = 0; i < m_particlesError.Length; i++)
         {
             float error = m_particlesError[i].error;
             sum += error;
         }
-
         return sum;
     }
 
@@ -379,10 +363,6 @@ public class ReducedModel : MonoBehaviour {
 
         float errorPos = gpuErrorDirection(nodes, deltas, deltaScale, 1.0f) /*/ numberOfErrorVals*/;
         float errorNeg = gpuErrorDirection(nodes, deltas, deltaScale, -1.0f) /*/ numberOfErrorVals*/;
-
-        //incrementBufferSwitch();
-        //m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
-        //m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
 
         // Calculate estimated gradient
         float[] gradient = new float[deltas.Length];
@@ -426,6 +406,13 @@ public class ReducedModel : MonoBehaviour {
             Debug.Log("Test nodes: " + testNodes[1].force);
             Debug.Log("Test nodes: " + testNodes[2].force);
 
+
+            //nodesComputeBuffer.SetData(testNodes);
+            //m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+
+            //No double buffer switching here in order to preserve the original.
+
+            //errorDataComputebuffer.GetData(m_particlesError);
             float sum = 0f;
             for (int i = 0; i < m_particlesError.Length; i++)
             {
@@ -454,6 +441,8 @@ public class ReducedModel : MonoBehaviour {
         {
             Debug.Log(i + " " + bestNodes[i].pos + " " + bestNodes[i].force);
         }
+
+        nodesComputeBuffer.SetData(bestNodes);
     }
 
     void Start () {
@@ -596,13 +585,19 @@ public class ReducedModel : MonoBehaviour {
         //m_computeShader.SetInt("_iteration", m_iteration);
         m_computeShader.Dispatch(m_kernelRun, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
 
+        incrementBufferSwitch();
+        m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
+        m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
+
+        m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
+
         //m_currentTime += Time.deltaTime;
         //if (m_currentTime >= m_updateFrequency)
         {
             m_currentTime = 0.0f;
             m_pointRenderer.material.SetPass(0);
             m_pointRenderer.material.SetMatrix("model", transform.localToWorldMatrix);
-            m_pointRenderer.material.SetInt("_iteration", m_iteration);
+            //m_pointRenderer.material.SetInt("_iteration", m_iteration);
             //Graphics.DrawProcedural(MeshTopology.Points, 1, m_pointsCount);
             Graphics.DrawProcedural(MeshTopology.Points, m_pointsCount);  // index buffer.
             m_iteration++;
