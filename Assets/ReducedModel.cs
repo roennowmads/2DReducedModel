@@ -30,7 +30,7 @@ public class ReducedModel : MonoBehaviour {
     private float m_currentTime;
     private float m_lastFrameTime = 0.0f;
     private int m_iteration = 0;
-    private int m_maxIterations = 1024;
+    private int m_maxIterations = 2000;
 
     public ComputeShader m_computeShader;
     public ComputeShader m_computeShaderSum;
@@ -40,6 +40,7 @@ public class ReducedModel : MonoBehaviour {
     private float[] m_particlesError;
     private Vector3[] m_particlesRecorded;
 
+    private int m_validationStepSize = 50;
 
     private int bufferSwitch = 0;
 
@@ -62,17 +63,17 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void initializeParticles() {
-        m_dimensionWidth = 256;
-        m_dimensionHeight = 1;
+        m_dimensionWidth = 16;
+        m_dimensionHeight = 16;
         m_dimensionDepth = 1;
 
-        m_particles = new CPUParticles.Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
+        m_particles = new Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
         //m_particlesRecorded = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth * m_maxIterations];
         m_particlesError = new float[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
 
         Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
         
-        float deltaPos = 0.05f;
+        float deltaPos = 1.0f;
 
         for (int i = 0; i < m_dimensionWidth; i++) {
             for (int j = 0; j < m_dimensionHeight; j++) {
@@ -93,6 +94,7 @@ public class ReducedModel : MonoBehaviour {
 
         m_computeShader.SetInt("_dimensionWidth", m_dimensionWidth);
         m_computeShader.SetInt("_maxIterations", m_maxIterations);
+        m_computeShader.SetInt("_validationStepSize", m_validationStepSize);
 
         particleInOutBuffers = new ComputeBuffer[2];
 
@@ -114,7 +116,7 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetBuffer(m_kernelRecord, "_ErrorData", errorDataComputebuffer);
         m_computeShaderSum.SetBuffer(m_kernelSum, "g_data", errorDataComputebuffer);
 
-        recordedDataComputebuffer = new ComputeBuffer(m_particlesError.Length * m_maxIterations, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.Default);
+        recordedDataComputebuffer = new ComputeBuffer(m_particlesError.Length * m_maxIterations / m_validationStepSize, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.Default);
         m_pointRenderer.material.SetBuffer("_RecordedData", recordedDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelValidate, "_RecordedData", recordedDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_RecordedData", recordedDataComputebuffer);
@@ -199,7 +201,7 @@ public class ReducedModel : MonoBehaviour {
         int bestIteration = 0;
         Node[] bestNodes = (Node[])testNodes.Clone();
 
-        for (int j = 0; j < 500; j++)
+        for (int j = 0; j < 2000; j++)
         {
             //m_iteration = j;
             float[] gradient = gpuEstimateGradient(testNodes, numberOfErrorVals, 0.0001f);
@@ -240,9 +242,9 @@ public class ReducedModel : MonoBehaviour {
             }
 
             Debug.Log(j + " Error: " + sum / numberOfErrorVals);
-            if (avgError < 0.005f)
+            if (avgError < 0.001f)
             {
-                //break;
+                break;
             }
         }
 
