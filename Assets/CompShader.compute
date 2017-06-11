@@ -1,7 +1,7 @@
 ﻿// Each #kernel tells which function to compile; you can have many kernels
-#pragma kernel CSMain
+#pragma kernel validate
 #pragma kernel record
-
+#pragma kernel run
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
@@ -21,7 +21,7 @@ struct ErrorData {
 	float error;
 };
 
-StructuredBuffer<Particle> _ParticleData;
+RWStructuredBuffer<Particle> _ParticleData;
 RWStructuredBuffer<ErrorData> _ErrorData;
 
 RWStructuredBuffer<Node> _Nodes;
@@ -35,12 +35,13 @@ static float3 g = float3(-0.0000918, 0.0, 0.0);
 float deltaTime;
 int _particleCount;
 int _maxIterations;
+int _dimensionWidth;
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+void validate (uint3 id : SV_DispatchThreadID)
 {
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
-	const unsigned int idx = id.x + 256 * id.y; //(id.y + 1 * id.z);
+	const unsigned int idx = id.x + _dimensionWidth * id.y; //(id.y + 1 * id.z);
 
 	float3 position = _ParticleData[idx].position;
 	float3 velocity = _ParticleData[idx].velocity;
@@ -64,8 +65,8 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 		velocity = velocity * damping;
 
 		position += velocity;
-		//_ParticleData[idx].position = position;
-		//_ParticleData[idx].velocity = velocity;
+		_ParticleData[idx].position = position;
+		_ParticleData[idx].velocity = velocity;
 
 		float errorDistance = distance(position, recordedPosition);
 
@@ -78,7 +79,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 void record(uint3 id : SV_DispatchThreadID)
 {
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
-	const unsigned int idx = id.x + 256 * id.y; //(id.y + 1 * id.z);
+	const unsigned int idx = id.x + _dimensionWidth * id.y; //(id.y + 1 * id.z);
 
 	float3 position = _ParticleData[idx].position;
 	float3 velocity = _ParticleData[idx].velocity;
@@ -106,3 +107,30 @@ void record(uint3 id : SV_DispatchThreadID)
 	}
 }
 
+[numthreads(thread_group_size_x, thread_group_size_y, 1)]
+void run(uint3 id : SV_DispatchThreadID)
+{
+	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
+	const unsigned int idx = id.x + _dimensionWidth * id.y; //(id.y + 1 * id.z);
+
+	float3 position = _ParticleData[idx].position;
+	float3 velocity = _ParticleData[idx].velocity;
+
+	float3 sum_vel = float3(0, 0, 0);
+	for (int i = 0; i < 3; i++) {
+		float3 node_pos = _Nodes[i].pos;
+		float distanceToNode = max(2.0, distance(node_pos, position));
+		float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+		sum_vel = sum_vel + deltaVelocity;
+	}
+
+	velocity += (sum_vel / 6.0) * 0.5;
+	velocity += g;
+	float damping = 0.995;
+	velocity = velocity * damping;
+
+	position += velocity;
+	_ParticleData[idx].position = position;
+	_ParticleData[idx].velocity = velocity;
+	
+}

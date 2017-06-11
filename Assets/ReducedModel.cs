@@ -31,7 +31,7 @@ public class ReducedModel : MonoBehaviour {
 
     public ComputeShader m_computeShader;
     public ComputeShader m_computeShaderSum;
-    private int m_kernel, m_kernelSum, m_kernelRecord;
+    private int m_kernelValidate, m_kernelSum, m_kernelRecord, m_kernelRun;
 
     private Particle[] m_particles;
     private ErrorData[] m_particlesError;
@@ -279,16 +279,19 @@ public class ReducedModel : MonoBehaviour {
 
         m_pointsCount = m_particles.Length;
 
+        m_computeShader.SetInt("_dimensionWidth", m_dimensionWidth);
+
         particleComputebuffer = new ComputeBuffer (m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
         particleComputebuffer.SetData(m_particles);
         m_pointRenderer.material.SetBuffer ("_ParticleData", particleComputebuffer);
-        m_computeShader.SetBuffer(m_kernel, "_ParticleData", particleComputebuffer);
+        m_computeShader.SetBuffer(m_kernelValidate, "_ParticleData", particleComputebuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_ParticleData", particleComputebuffer);
+        m_computeShader.SetBuffer(m_kernelRun, "_ParticleData", particleComputebuffer);
 
         errorDataComputebuffer = new ComputeBuffer (m_particlesError.Length, Marshal.SizeOf(typeof(ErrorData)), ComputeBufferType.Default);
         errorDataComputebuffer.SetData(m_particlesError);
         m_pointRenderer.material.SetBuffer ("_ErrorData", errorDataComputebuffer);
-        m_computeShader.SetBuffer(m_kernel, "_ErrorData", errorDataComputebuffer);
+        m_computeShader.SetBuffer(m_kernelValidate, "_ErrorData", errorDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_ErrorData", errorDataComputebuffer);
         m_computeShaderSum.SetBuffer(m_kernelSum, "g_data", errorDataComputebuffer);
     }
@@ -329,7 +332,7 @@ public class ReducedModel : MonoBehaviour {
         //for (int i = 0; i < m_maxIterations; i++)
         {
             m_computeShader.SetInt("_maxIterations", m_maxIterations);
-            m_computeShader.Dispatch(m_kernel, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+            m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
         }
 
         errorDataComputebuffer.GetData(m_particlesError);
@@ -435,9 +438,10 @@ public class ReducedModel : MonoBehaviour {
     void Start () {
         Screen.SetResolution(720, 1280, true);
         m_pointRenderer = GetComponent<Renderer>();
-        m_kernel = m_computeShader.FindKernel("CSMain");
+        m_kernelValidate = m_computeShader.FindKernel("validate");
         m_kernelSum = m_computeShaderSum.FindKernel("reduce1");
         m_kernelRecord = m_computeShader.FindKernel("record");
+        m_kernelRun = m_computeShader.FindKernel("run");
 
         //nodes for training:
         Node[] trainingNodes = {
@@ -456,8 +460,9 @@ public class ReducedModel : MonoBehaviour {
 
         nodesComputeBuffer = new ComputeBuffer(trainingNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
         nodesComputeBuffer.SetData(trainingNodes);
-        m_computeShader.SetBuffer(m_kernel, "_Nodes", nodesComputeBuffer);
+        m_computeShader.SetBuffer(m_kernelValidate, "_Nodes", nodesComputeBuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_Nodes", nodesComputeBuffer);
+        m_computeShader.SetBuffer(m_kernelRun, "_Nodes", nodesComputeBuffer);
 
         m_pointRenderer.material.SetInt("_PointsCount", m_pointsCount);
         float aspect = Camera.main.GetComponent<Camera>().aspect;
@@ -478,8 +483,10 @@ public class ReducedModel : MonoBehaviour {
 
         gpuTrainValidateModel(testNodes);
 
+        resetParticles();
+
         m_iteration = 0;
-        m_computeShader.SetInt("_maxIterations", 1);
+        //m_computeShader.SetInt("_maxIterations", 1);
         //resetParticles();
 
         /*for (int j = 0; j < 5; j++) {
@@ -561,8 +568,8 @@ public class ReducedModel : MonoBehaviour {
 
     private void OnRenderObject()
     {
-        m_computeShader.SetInt("_iteration", m_iteration);
-        m_computeShader.Dispatch(m_kernel, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+        //m_computeShader.SetInt("_iteration", m_iteration);
+        m_computeShader.Dispatch(m_kernelRun, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
 
         //m_currentTime += Time.deltaTime;
         //if (m_currentTime >= m_updateFrequency)
