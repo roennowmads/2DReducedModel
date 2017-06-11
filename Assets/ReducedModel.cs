@@ -20,7 +20,10 @@ public class ReducedModel : MonoBehaviour {
 
     private int m_textureSwitchFrameNumber = -1;
 
-    private ComputeBuffer particleComputebuffer, nodesComputeBuffer, errorDataComputebuffer;
+    private ComputeBuffer nodesComputeBuffer, errorDataComputebuffer, particleComputebuffer;
+
+    private ComputeBuffer[] particleInOutBuffers;
+
     private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth;
 
     private float m_updateFrequency = 0.0333f;
@@ -35,6 +38,8 @@ public class ReducedModel : MonoBehaviour {
 
     private Particle[] m_particles;
     private ErrorData[] m_particlesError;
+
+    private int bufferSwitch = 0;
 
     struct Node {
         public Vector3 pos;
@@ -55,6 +60,10 @@ public class ReducedModel : MonoBehaviour {
         public float error;
     };
 
+
+    void incrementBufferSwitch() {
+        bufferSwitch = (bufferSwitch + 1) % 2;
+    }
 
     void cpuRun (uint id, uint iteration, Node[] nodes, Vector3 g) {
         Vector3 recordedPosition = m_particlesError[id + iteration * m_pointsCount].recordedPosition;
@@ -280,13 +289,27 @@ public class ReducedModel : MonoBehaviour {
         m_pointsCount = m_particles.Length;
 
         m_computeShader.SetInt("_dimensionWidth", m_dimensionWidth);
+        m_computeShader.SetInt("_maxIterations", m_maxIterations);
 
-        particleComputebuffer = new ComputeBuffer (m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
-        particleComputebuffer.SetData(m_particles);
-        m_pointRenderer.material.SetBuffer ("_ParticleData", particleComputebuffer);
-        m_computeShader.SetBuffer(m_kernelValidate, "_ParticleData", particleComputebuffer);
-        m_computeShader.SetBuffer(m_kernelRecord, "_ParticleData", particleComputebuffer);
-        m_computeShader.SetBuffer(m_kernelRun, "_ParticleData", particleComputebuffer);
+        //particleComputebuffer = new ComputeBuffer (m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
+        //particleComputebuffer.SetData(m_particles);
+        //m_pointRenderer.material.SetBuffer ("_ParticleData", particleComputebuffer);
+        //m_computeShader.SetBuffer(m_kernelValidate, "_ParticleData", particleComputebuffer);
+        //m_computeShader.SetBuffer(m_kernelRecord, "_ParticleData", particleComputebuffer);
+        //m_computeShader.SetBuffer(m_kernelRun, "_ParticleData", particleComputebuffer);
+
+        particleInOutBuffers = new ComputeBuffer[2];
+
+        particleInOutBuffers[0] = new ComputeBuffer(m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
+        particleInOutBuffers[0].SetData(m_particles);
+        m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataIn", particleInOutBuffers[0]);
+        m_computeShader.SetBuffer(m_kernelRecord, "_ParticleDataIn", particleInOutBuffers[0]);
+
+        particleInOutBuffers[1] = new ComputeBuffer(m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
+        particleInOutBuffers[1].SetData(m_particles);
+        //m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataOut", particleInOutBuffers[1]);
+        m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1]);
+        m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[1]);
 
         errorDataComputebuffer = new ComputeBuffer (m_particlesError.Length, Marshal.SizeOf(typeof(ErrorData)), ComputeBufferType.Default);
         errorDataComputebuffer.SetData(m_particlesError);
@@ -297,7 +320,8 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void resetParticles() {
-        particleComputebuffer.SetData(m_particles);
+        particleInOutBuffers[0].SetData(m_particles);
+        particleInOutBuffers[1].SetData(m_particles);
     }
 
     float[] getRandomDeltas(int numberOfNodes) {
@@ -325,20 +349,18 @@ public class ReducedModel : MonoBehaviour {
         }
 
         //Store the current state of the particles somehow
-        particleComputebuffer.GetData(m_particles);
+        //particleComputebuffer.GetData(m_particles);
 
         //Run test:
         nodesComputeBuffer.SetData(dirNodes);
-        //for (int i = 0; i < m_maxIterations; i++)
-        {
-            m_computeShader.SetInt("_maxIterations", m_maxIterations);
-            m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
-        }
+        m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+
+        //No double buffer switching here in order to preserve the original.
 
         errorDataComputebuffer.GetData(m_particlesError);
 
         //Restore the previous state of the particles somehow
-        particleComputebuffer.SetData(m_particles);
+        //particleComputebuffer.SetData(m_particles);
 
         float sum = 0f;
         for (int i = 0; i < m_particlesError.Length; i++)
@@ -358,6 +380,10 @@ public class ReducedModel : MonoBehaviour {
         float errorPos = gpuErrorDirection(nodes, deltas, deltaScale, 1.0f) /*/ numberOfErrorVals*/;
         float errorNeg = gpuErrorDirection(nodes, deltas, deltaScale, -1.0f) /*/ numberOfErrorVals*/;
 
+        //incrementBufferSwitch();
+        //m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
+        //m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
+
         // Calculate estimated gradient
         float[] gradient = new float[deltas.Length];
         for (int i = 0; i < gradient.Length; i++)
@@ -370,13 +396,8 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void gpuRecordSimulation(Node[] trainingNodes) {
-        //for (int i = 0; i < m_maxIterations; i++)
-        {
-            m_computeShader.SetInt("_maxIterations", m_maxIterations);
-            m_computeShader.Dispatch(m_kernelRecord, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
-        }
-        //Reset particles but not the recorded particles:
-        resetParticles();
+        m_computeShader.Dispatch(m_kernelRecord, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+        //No need to restore anything or switch buffers because the record kernel doesn't modify the particles buffer.
     }
 
     void gpuTrainValidateModel(Node[] testNodes) {
@@ -483,7 +504,11 @@ public class ReducedModel : MonoBehaviour {
 
         gpuTrainValidateModel(testNodes);
 
-        resetParticles();
+        //m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
+
+        //nodesComputeBuffer.SetData(trainingNodes);
+
+        //resetParticles();
 
         m_iteration = 0;
         //m_computeShader.SetInt("_maxIterations", 1);
@@ -590,7 +615,8 @@ public class ReducedModel : MonoBehaviour {
     }*/
 
     void OnDestroy() {
-        particleComputebuffer.Release();
+        particleInOutBuffers[0].Release();
+        particleInOutBuffers[1].Release();
         errorDataComputebuffer.Release();
         nodesComputeBuffer.Release();
     }

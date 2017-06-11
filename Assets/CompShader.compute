@@ -21,10 +21,11 @@ struct ErrorData {
 	float error;
 };
 
-RWStructuredBuffer<Particle> _ParticleData;
+StructuredBuffer<Particle> _ParticleDataIn;
+RWStructuredBuffer<Particle> _ParticleDataOut;
 RWStructuredBuffer<ErrorData> _ErrorData;
 
-RWStructuredBuffer<Node> _Nodes;
+StructuredBuffer<Node> _Nodes;
 
 #define thread_group_size_x 1
 #define thread_group_size_y 1
@@ -37,14 +38,15 @@ int _particleCount;
 int _maxIterations;
 int _dimensionWidth;
 
+
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
-void validate (uint3 id : SV_DispatchThreadID)
+void validate(uint3 id : SV_DispatchThreadID)
 {
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
 	const unsigned int idx = id.x + _dimensionWidth * id.y; //(id.y + 1 * id.z);
 
-	float3 position = _ParticleData[idx].position;
-	float3 velocity = _ParticleData[idx].velocity;
+	float3 position = _ParticleDataIn[idx].position;
+	float3 velocity = _ParticleDataIn[idx].velocity;
 
 	for (int iter = 0; iter < _maxIterations; iter++) {
 
@@ -65,15 +67,10 @@ void validate (uint3 id : SV_DispatchThreadID)
 		velocity = velocity * damping;
 
 		position += velocity;
-		_ParticleData[idx].position = position;
-		_ParticleData[idx].velocity = velocity;
-
 		float errorDistance = distance(position, recordedPosition);
-
 		_ErrorData[recordingIndex].error = errorDistance;//pow(abs(_Positions[idx] - recordedPosition), 1.0); //pow(distance(_Positions[idx], recordedPosition), 20.0);
 	}
 }
-
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
 void record(uint3 id : SV_DispatchThreadID)
@@ -81,8 +78,8 @@ void record(uint3 id : SV_DispatchThreadID)
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
 	const unsigned int idx = id.x + _dimensionWidth * id.y; //(id.y + 1 * id.z);
 
-	float3 position = _ParticleData[idx].position;
-	float3 velocity = _ParticleData[idx].velocity;
+	float3 position = _ParticleDataIn[idx].position;
+	float3 velocity = _ParticleDataIn[idx].velocity;
 
 	for (int iter = 0; iter < _maxIterations; iter++) {
 		float3 sum_vel = float3(0, 0, 0);
@@ -99,10 +96,6 @@ void record(uint3 id : SV_DispatchThreadID)
 		velocity = velocity * damping;
 
 		position = position + velocity;
-
-		//_ParticleData[idx].position = position + velocity;
-		//_ParticleData[idx].velocity = velocity;
-
 		_ErrorData[idx + iter * _particleCount].recordedPosition = position;
 	}
 }
@@ -113,8 +106,8 @@ void run(uint3 id : SV_DispatchThreadID)
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
 	const unsigned int idx = id.x + _dimensionWidth * id.y; //(id.y + 1 * id.z);
 
-	float3 position = _ParticleData[idx].position;
-	float3 velocity = _ParticleData[idx].velocity;
+	float3 position = _ParticleDataOut[idx].position;
+	float3 velocity = _ParticleDataOut[idx].velocity;
 
 	float3 sum_vel = float3(0, 0, 0);
 	for (int i = 0; i < 3; i++) {
@@ -130,7 +123,7 @@ void run(uint3 id : SV_DispatchThreadID)
 	velocity = velocity * damping;
 
 	position += velocity;
-	_ParticleData[idx].position = position;
-	_ParticleData[idx].velocity = velocity;
+	_ParticleDataOut[idx].position = position;
+	_ParticleDataOut[idx].velocity = velocity;
 	
 }
