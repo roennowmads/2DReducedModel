@@ -146,9 +146,9 @@ public class ReducedModel : MonoBehaviour {
 
         for (int i = 0; i < dirNodes.Length; i++)
         {
-            dirNodes[i].force += direction * deltas[i/**4*/] * deltaScale;
-            //Vector3 deltaPos = new Vector3(deltas[i*4+1], deltas[i*4+2], deltas[i*4+3]) * deltaScale*1000.0f;
-            //posNodes[i].pos += deltaPos;
+            dirNodes[i].force += direction * deltas[i*4] * deltaScale;
+            Vector3 deltaPos = new Vector3(deltas[i*4+1], deltas[i*4+2], deltas[i*4+3]) * deltaScale*1000.0f;
+            dirNodes[i].pos += direction * deltaPos;
         }
 
         //We don't need to store/restore particle state, because the validate kernel doesn't modify particle state.
@@ -172,7 +172,7 @@ public class ReducedModel : MonoBehaviour {
     //https://github.com/yanatan16/golang-spsa/blob/master/spsa.go
     //https://en.wikipedia.org/wiki/Simultaneous_perturbation_stochastic_approximation
     float[] gpuEstimateGradient(Node[] nodes, int numberOfErrorVals, float deltaScale) {
-        float[] deltas = getRandomDeltas(nodes.Length);
+        float[] deltas = getRandomDeltas(nodes.Length*4);
 
         float errorPos = gpuErrorDirection(nodes, deltas, deltaScale, 1.0f) /*/ numberOfErrorVals*/;
         float errorNeg = gpuErrorDirection(nodes, deltas, deltaScale, -1.0f) /*/ numberOfErrorVals*/;
@@ -211,14 +211,14 @@ public class ReducedModel : MonoBehaviour {
             for (int i = 0; i < testNodes.Length; i++)
             {
                 testNodes[i].force -= gradient[i] * gradientScale;
-                //Vector3 deltaPos = new Vector3(gradient[i*4+1], gradient[i*4+2], gradient[i*4+3]) * gradientScale * 100.0f;
-                //testNodes[i].pos -= deltaPos;
+                Vector3 deltaPos = new Vector3(gradient[i*4+1], gradient[i*4+2], gradient[i*4+3]) * gradientScale * 100.0f;
+                testNodes[i].pos -= deltaPos;
             }
 
-            Debug.Log("Test nodes: " + testNodes[0].force);
-            Debug.Log("Test nodes: " + testNodes[1].force);
-            Debug.Log("Test nodes: " + testNodes[2].force);
-
+            for (int i = 0; i < testNodes.Length; i++)
+            {
+                Debug.Log(i + " " + testNodes[i].pos + " " + testNodes[i].force);
+            }
 
             //nodesComputeBuffer.SetData(testNodes);
             //m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
@@ -275,8 +275,14 @@ public class ReducedModel : MonoBehaviour {
 
         Node[] testNodes = {
             new Node(new Vector3(0.0f, 0.0f, 0.0f), 0.0f),
-            new Node(new Vector3(2.0f, 3.0f, 0.0f), 0.0f),
-            new Node(new Vector3(-5.0f, 2.0f, 0.0f), 0.0f)
+            new Node(new Vector3(0.0f, 0.0f, 0.0f), 0.0f),
+            new Node(new Vector3(0.0f, 0.0f, 0.0f), 0.0f)
+        };
+
+        Node[] checkNodes = {
+            new Node(new Vector3(-3.3f, 2.2f, 1.7f), 0.02121057f),
+            new Node(new Vector3(-1.0f, 2.6f, 0.2f), -0.03288997f),
+            new Node(new Vector3(-3.3f, 3.6f, -1.2f), 0.02232057f)
         };
 
         initializeParticles();
@@ -304,7 +310,7 @@ public class ReducedModel : MonoBehaviour {
 
         //m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
 
-        //nodesComputeBuffer.SetData(trainingNodes);
+        //nodesComputeBuffer.SetData(checkNodes);
 
         //resetParticles();
 
