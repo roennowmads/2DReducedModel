@@ -157,6 +157,8 @@ public class ReducedModel : MonoBehaviour {
         nodesComputeBuffer.SetData(dirNodes);
         m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
 
+        //Hey, would it be feasible to just have the validate threads all write to the same _ErrorData element?
+
         //No double buffer switching here in order to preserve the original.
 
         errorDataComputebuffer.GetData(m_particlesError);
@@ -174,8 +176,12 @@ public class ReducedModel : MonoBehaviour {
     float[] gpuEstimateGradient(Node[] nodes, int numberOfErrorVals, float deltaScale) {
         float[] deltas = getRandomDeltas(nodes.Length*4);
 
+        //these two could be done simultaneously taking advantage of more GPU threads.
         float errorPos = gpuErrorDirection(nodes, deltas, deltaScale, 1.0f) /*/ numberOfErrorVals*/;
         float errorNeg = gpuErrorDirection(nodes, deltas, deltaScale, -1.0f) /*/ numberOfErrorVals*/;
+
+        //The error could also be subtracted directly in the shader, like I did when using a 2 size array with the prefix sum.
+        //Then GetData only has to be called once.
 
         // Calculate estimated gradient
         float[] gradient = new float[deltas.Length];
