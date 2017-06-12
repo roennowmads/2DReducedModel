@@ -19,7 +19,7 @@ struct Particle {
 StructuredBuffer<Particle> _ParticleDataIn;
 RWStructuredBuffer<Particle> _ParticleDataOut;
 
-RWStructuredBuffer<int> _ErrorData;
+RWStructuredBuffer<float> _ErrorData;
 RWStructuredBuffer<float3> _RecordedData;
 
 StructuredBuffer<Node> _Nodes;
@@ -75,10 +75,12 @@ void validate(uint3 id : SV_DispatchThreadID)
 			errorAccumulated += errorDistance;
 		}
 	}
+	_ErrorData[idx] = _ErrorData[idx] * _direction - (_direction * 2 - 1) * errorAccumulated;
+	//ErrorData[idx] is 0, _direction is 0, ErrorData[idx] = errorAccumulated.
+	//ErrorData[idx] is something, _direction is 0, ErrorData[idx] = errorAccumulated.
+	//ErrorData[idx] is 0, _direction is 1, ErrorData[idx] = -errorAccumulated.
+	//ErrorData[idx] is something, _direction is 1, ErrorData[idx] = something - errorAccumulated.
 
-	InterlockedAdd(_ErrorData[0], _direction * int(errorAccumulated) * 1000);
-
-	//_ErrorData[idx] = int(errorAccumulated)*1000;
 }
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
