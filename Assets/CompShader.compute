@@ -19,7 +19,7 @@ struct Particle {
 StructuredBuffer<Particle> _ParticleDataIn;
 RWStructuredBuffer<Particle> _ParticleDataOut;
 
-RWStructuredBuffer<float> _ErrorData;
+RWStructuredBuffer<int> _ErrorData;
 RWStructuredBuffer<float3> _RecordedData;
 
 StructuredBuffer<Node> _Nodes;
@@ -35,13 +35,13 @@ int _particleCount;
 unsigned int _maxIterations;
 unsigned int _dimensionWidth; 
 unsigned int _validationStepSize;
-
+int _direction;
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
 void validate(uint3 id : SV_DispatchThreadID)
 {
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
-	const unsigned int idx = id.x + _dimensionWidth * id.y; //(id.y + 1 * id.z);
+	const unsigned int idx = (id.x/* % _dimensionWidth*/) + _dimensionWidth * (id.y /*% _dimensionWidth*/); //(id.y + 1 * id.z);
 
 	float3 position = _ParticleDataIn[idx].position;
 	float3 velocity = _ParticleDataIn[idx].velocity;
@@ -75,8 +75,10 @@ void validate(uint3 id : SV_DispatchThreadID)
 			errorAccumulated += errorDistance;
 		}
 	}
-	//_ErrorData[idx] = errorAccumulated;
-	_ErrorData[0] += errorAccumulated;
+
+	InterlockedAdd(_ErrorData[0], _direction * int(errorAccumulated) * 1000);
+
+	//_ErrorData[idx] = int(errorAccumulated)*1000;
 }
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
