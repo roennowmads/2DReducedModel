@@ -155,7 +155,7 @@ public class ReducedModel : MonoBehaviour {
 
         //Run test:
         nodesComputeBuffer.SetData(dirNodes);
-        m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth/**2*/, m_dimensionHeight, m_dimensionDepth);
+        m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
 
         //Hey, would it be feasible to just have the validate threads all write to the same _ErrorData element?
 
@@ -184,17 +184,17 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetInt("_direction", 1);
         float errorNeg = gpuErrorDirection(nodes, deltas, deltaScale, -1.0f) /*/ numberOfErrorVals*/;
 
-        //m_computeShaderSum.Dispatch(m_kernelSum, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+        m_computeShaderSum.Dispatch(m_kernelSum, 1, 1, 1);//m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
 
         errorDataComputebuffer.GetData(m_particlesError);
         //float errorDiff = ((float)m_particlesError[0]);
-        
-        float errorDiff = 0f;
-        for (int i = 0; i < m_particlesError.Length; i++)
+
+        float errorDiff = m_particlesError[0];//0f;
+        /*for (int i = 0; i < m_particlesError.Length; i++)
         {
             float error = m_particlesError[i];
             errorDiff += error;
-        }
+        }*/
 
         //The error could also be subtracted directly in the shader, like I did when using a 2 size array with the prefix sum.
         //Then GetData only has to be called once.
@@ -250,12 +250,12 @@ public class ReducedModel : MonoBehaviour {
             //No double buffer switching here in order to preserve the original.
 
             //errorDataComputebuffer.GetData(m_particlesError);
-            float sum = 0f;
-            for (int i = 0; i < m_particlesError.Length; i++)
+            float sum = m_particlesError[0];//0f;
+            /*for (int i = 0; i < m_particlesError.Length; i++)
             {
                 float error = m_particlesError[i];   //Some error diffs are negative
                 sum += error;
-            }
+            }*/
             //float sum = Mathf.Abs(((float)m_particlesError[0]));
 
             //int[] particlesError = new int[/*m_dimensionWidth * m_dimensionHeight * m_dimensionDepth*/ 1];
@@ -290,7 +290,7 @@ public class ReducedModel : MonoBehaviour {
         Screen.SetResolution(720, 1280, true);
         m_pointRenderer = GetComponent<Renderer>();
         m_kernelValidate = m_computeShader.FindKernel("validate");
-        m_kernelSum = m_computeShaderSum.FindKernel("reduce1");
+        m_kernelSum = m_computeShaderSum.FindKernel("myReduce");
         m_kernelRecord = m_computeShader.FindKernel("record");
         m_kernelRun = m_computeShader.FindKernel("run");
 
