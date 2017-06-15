@@ -24,7 +24,7 @@ public class ReducedModel : MonoBehaviour {
     private ComputeBuffer nodesComputeBuffer, errorDataComputebuffer, recordedDataComputebuffer;
     private ComputeBuffer[] particleInOutBuffers;
 
-    private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth;
+    private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth, m_threadGroupsX, m_threadGroupsY;
 
     private float m_updateFrequency = 0.0333f;
     private float m_currentTime;
@@ -63,8 +63,11 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void initializeParticles() {
-        m_dimensionWidth = 16;
-        m_dimensionHeight = 16;
+        m_dimensionWidth = 1024;
+        m_dimensionHeight = 1024;
+        int threadGroupSize = 4;
+        m_threadGroupsX = m_dimensionWidth / threadGroupSize;
+        m_threadGroupsY = m_dimensionHeight / threadGroupSize;
         m_dimensionDepth = 1;
 
         m_particles = new Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
@@ -73,7 +76,7 @@ public class ReducedModel : MonoBehaviour {
 
         Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
         
-        float deltaPos = 1.0f;
+        float deltaPos = .05f;
 
         for (int i = 0; i < m_dimensionWidth; i++) {
             for (int j = 0; j < m_dimensionHeight; j++) {
@@ -294,7 +297,7 @@ public class ReducedModel : MonoBehaviour {
         m_kernelRecord = m_computeShader.FindKernel("record");
         m_kernelRun = m_computeShader.FindKernel("run");
 
-        //nodes for training:
+        //nodes for training:`
         Node[] trainingNodes = {
             new Node(new Vector3(0.0f, 0.0f, 0.0f), -0.005f),
             new Node(new Vector3(2.0f, 3.0f, 0.0f), -0.005f),
@@ -333,8 +336,8 @@ public class ReducedModel : MonoBehaviour {
         //CPUParticles.cpuRecordSimulation(trainingNodes, ref m_particles, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
         //CPUParticles.cpuTrainValidateModel(testNodes, ref m_particles, ref m_particlesError, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
 
-        gpuRecordSimulation(trainingNodes);
-        gpuTrainValidateModel(testNodes);
+        //gpuRecordSimulation(trainingNodes);
+        //gpuTrainValidateModel(testNodes);
 
         //m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
 
@@ -426,7 +429,7 @@ public class ReducedModel : MonoBehaviour {
     private void OnRenderObject()
     {
         //m_computeShader.SetInt("_iteration", m_iteration);
-        m_computeShader.Dispatch(m_kernelRun, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+        m_computeShader.Dispatch(m_kernelRun, m_threadGroupsX, m_threadGroupsY, 1);
 
         incrementBufferSwitch();
         m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);

@@ -24,8 +24,8 @@ RWStructuredBuffer<float3> _RecordedData;
 
 StructuredBuffer<Node> _Nodes;
 
-#define thread_group_size_x 1
-#define thread_group_size_y 1
+#define thread_group_size_x 4
+#define thread_group_size_y 4
 
 
 static float3 g = float3(-0.0000918, 0.0, 0.0);
@@ -59,8 +59,11 @@ void validate(uint3 id : SV_DispatchThreadID)
 		float3 sum_vel = float3(0, 0, 0);
 		for (int i = 0; i < 3; i++) {
 			float3 node_pos = _Nodes[i].pos;
-			float distanceToNode = max(2.0, distance(node_pos, position));
-			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+			//float distanceToNode = max(2.0, distance(node_pos, position));
+			//float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+			float3 posToNode = node_pos - position;
+			float distanceToNode = length(posToNode);
+			float3 deltaVelocity = posToNode * _Nodes[i].force / (distanceToNode*pow(max(2.0, distanceToNode), 1.7));
 			sum_vel = sum_vel + deltaVelocity;
 		}
 
@@ -96,8 +99,11 @@ void record(uint3 id : SV_DispatchThreadID)
 		float3 sum_vel = float3(0, 0, 0);
 		for (int i = 0; i < 3; i++) {
 			float3 node_pos = _Nodes[i].pos;
-			float distanceToNode = max(2.0, distance(node_pos, position));
-			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+			//float distanceToNode = max(2.0, distance(node_pos, position));
+			//float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+			float3 posToNode = node_pos - position;
+			float distanceToNode = length(posToNode);
+			float3 deltaVelocity = posToNode * _Nodes[i].force / (distanceToNode*pow(max(2.0, distanceToNode), 1.7));
 			sum_vel = sum_vel + deltaVelocity;
 		}
 
@@ -124,10 +130,14 @@ void run(uint3 id : SV_DispatchThreadID)
 	float3 velocity = _ParticleDataIn[idx].velocity;
 
 	float3 sum_vel = float3(0, 0, 0);
+	//these operations could be combined into matrix operations up to size 4x4. This may increase performance a bit.
 	for (unsigned int i = 0; i < 3; i++) {
 		float3 node_pos = _Nodes[i].pos;
 		float distanceToNode = max(2.0, distance(node_pos, position));
 		float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+		//float3 posToNode = node_pos - position;
+		//float distanceToNode = length(posToNode);
+		//float3 deltaVelocity = posToNode * _Nodes[i].force / (distanceToNode*pow(max(2.0, distanceToNode), 1.7));
 		sum_vel = sum_vel + deltaVelocity;
 	}
 
