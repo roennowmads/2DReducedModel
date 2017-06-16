@@ -24,8 +24,8 @@ RWStructuredBuffer<float3> _RecordedData;
 
 StructuredBuffer<Node> _Nodes;
 
-#define thread_group_size_x 4
-#define thread_group_size_y 4
+#define thread_group_size_x 16
+#define thread_group_size_y 16
 
 
 static float3 g = float3(-0.0000918, 0.0, 0.0);
@@ -35,7 +35,9 @@ int _particleCount;
 unsigned int _maxIterations;
 unsigned int _dimensionWidth; 
 unsigned int _validationStepSize;
-int _direction;
+float _direction;
+
+bool _fancyWay;
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
 void validate(uint3 id : SV_DispatchThreadID)
@@ -48,8 +50,10 @@ void validate(uint3 id : SV_DispatchThreadID)
 
 	float errorAccumulated = 0.0;
 
+	float oldErrorData = _ErrorData[idx];
+
 	for (unsigned int iter = 0; iter < _maxIterations; iter++) {
-		float3 recordedPosition;
+		float3 recordedPosition = float3(0.0, 0.0, 0.0);
 		bool compare = iter % _validationStepSize == 0;
 		if (compare) {
 			const unsigned int recordingIndex = idx + (iter * _particleCount / _validationStepSize);
@@ -59,11 +63,11 @@ void validate(uint3 id : SV_DispatchThreadID)
 		float3 sum_vel = float3(0, 0, 0);
 		for (int i = 0; i < 3; i++) {
 			float3 node_pos = _Nodes[i].pos;
-			//float distanceToNode = max(2.0, distance(node_pos, position));
-			//float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
-			float3 posToNode = node_pos - position;
-			float distanceToNode = length(posToNode);
-			float3 deltaVelocity = posToNode * _Nodes[i].force / (distanceToNode*pow(max(2.0, distanceToNode), 1.7));
+			float distanceToNode = max(2.0, distance(node_pos, position));
+			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+			//float3 posToNode = node_pos - position;
+			//float distanceToNode = length(posToNode);
+			//float3 deltaVelocity = posToNode * _Nodes[i].force / (distanceToNode*pow(max(2.0, distanceToNode), 1.7));
 			sum_vel = sum_vel + deltaVelocity;
 		}
 
@@ -78,7 +82,13 @@ void validate(uint3 id : SV_DispatchThreadID)
 			errorAccumulated += errorDistance;
 		}
 	}
-	_ErrorData[idx] = _ErrorData[idx] * _direction - (_direction * 2 - 1) * errorAccumulated;
+	if (_fancyWay) {
+		_ErrorData[idx] = oldErrorData * _direction - (_direction * 2.0 - 1.0) * errorAccumulated;
+		//GroupMemoryBarrierWithGroupSync();
+	}
+	else {
+		_ErrorData[idx] = errorAccumulated;
+	}
 	//ErrorData[idx] is 0, _direction is 0, ErrorData[idx] = errorAccumulated.
 	//ErrorData[idx] is something, _direction is 0, ErrorData[idx] = errorAccumulated.
 	//ErrorData[idx] is 0, _direction is 1, ErrorData[idx] = -errorAccumulated.
@@ -99,11 +109,11 @@ void record(uint3 id : SV_DispatchThreadID)
 		float3 sum_vel = float3(0, 0, 0);
 		for (int i = 0; i < 3; i++) {
 			float3 node_pos = _Nodes[i].pos;
-			//float distanceToNode = max(2.0, distance(node_pos, position));
-			//float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
-			float3 posToNode = node_pos - position;
-			float distanceToNode = length(posToNode);
-			float3 deltaVelocity = posToNode * _Nodes[i].force / (distanceToNode*pow(max(2.0, distanceToNode), 1.7));
+			float distanceToNode = max(2.0, distance(node_pos, position));
+			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
+			//float3 posToNode = node_pos - position;
+			//float distanceToNode = length(posToNode);
+			//float3 deltaVelocity = posToNode * _Nodes[i].force / (distanceToNode*pow(max(2.0, distanceToNode), 1.7));
 			sum_vel = sum_vel + deltaVelocity;
 		}
 

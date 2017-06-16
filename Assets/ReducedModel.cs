@@ -21,7 +21,7 @@ public class ReducedModel : MonoBehaviour {
 
     private int m_textureSwitchFrameNumber = -1;
 
-    private ComputeBuffer nodesComputeBuffer, errorDataComputebuffer, recordedDataComputebuffer;
+    private ComputeBuffer nodesComputeBuffer, errorDataComputebuffer, recordedDataComputebuffer, sumDataComputeBuffer;
     private ComputeBuffer[] particleInOutBuffers;
 
     private int m_dimensionWidth, m_dimensionHeight, m_dimensionDepth, m_threadGroupsX, m_threadGroupsY;
@@ -39,6 +39,7 @@ public class ReducedModel : MonoBehaviour {
     private Particle[] m_particles;
     private float[] m_particlesError;
     private Vector3[] m_particlesRecorded;
+    private float[] m_errorSingleData = new float[1];
 
     private int m_validationStepSize = 50;
 
@@ -63,20 +64,20 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void initializeParticles() {
-        m_dimensionWidth = 1024;
-        m_dimensionHeight = 1024;
-        int threadGroupSize = 4;
+        m_dimensionWidth = 16;
+        m_dimensionHeight = 16;
+        int threadGroupSize = 16;
         m_threadGroupsX = m_dimensionWidth / threadGroupSize;
         m_threadGroupsY = m_dimensionHeight / threadGroupSize;
         m_dimensionDepth = 1;
 
         m_particles = new Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
-        //m_particlesRecorded = new Vector3[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth * m_maxIterations];
+        m_particlesRecorded = new Vector3[m_particles.Length * m_maxIterations / m_validationStepSize];
         m_particlesError = new float[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
 
         Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
         
-        float deltaPos = .05f;
+        float deltaPos = 1.0f;
 
         for (int i = 0; i < m_dimensionWidth; i++) {
             for (int j = 0; j < m_dimensionHeight; j++) {
@@ -120,9 +121,13 @@ public class ReducedModel : MonoBehaviour {
         m_computeShaderSum.SetBuffer(m_kernelSum, "g_data", errorDataComputebuffer);
 
         recordedDataComputebuffer = new ComputeBuffer(m_pointsCount * m_maxIterations / m_validationStepSize, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.Default);
+        errorDataComputebuffer.SetData(m_particlesRecorded);
         m_pointRenderer.material.SetBuffer("_RecordedData", recordedDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelValidate, "_RecordedData", recordedDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_RecordedData", recordedDataComputebuffer);
+
+        sumDataComputeBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(float)), ComputeBufferType.Default);
+        m_computeShaderSum.SetBuffer(m_kernelSum, "_SumData", sumDataComputeBuffer);
     }
 
     void resetParticles() {
@@ -158,7 +163,7 @@ public class ReducedModel : MonoBehaviour {
 
         //Run test:
         nodesComputeBuffer.SetData(dirNodes);
-        m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+        m_computeShader.Dispatch(m_kernelValidate, m_threadGroupsX, m_threadGroupsY, 1);
 
         //Hey, would it be feasible to just have the validate threads all write to the same _ErrorData element?
 
@@ -181,23 +186,76 @@ public class ReducedModel : MonoBehaviour {
     float[] gpuEstimateGradient(Node[] nodes, int numberOfErrorVals, float deltaScale) {
         float[] deltas = getRandomDeltas(nodes.Length*4);
 
+        //recordedDataComputebuffer.GetData(m_particlesRecorded);
+
+        //float[] errors = new float[m_particlesError.Length];
+        //errorDataComputebuffer.SetData(errors);
+
+        m_computeShader.SetBool("_fancyWay", true);
+        m_computeShader.SetFloat("_direction", 0.0f);
+        gpuErrorDirection(nodes, deltas, deltaScale, 1.0f) /*/ numberOfErrorVals*/;
+
+
+        /*errorDataComputebuffer.GetData(m_particlesError);
+        float errorSumA = 0f;
+        for (int i = 0; i < m_particlesError.Length; i++)
+        {
+            float error = m_particlesError[i];
+            errorSumA += error;
+        }*/
+
+        m_computeShader.SetFloat("_direction", 1.0f);
+        gpuErrorDirection(nodes, deltas, deltaScale, -1.0f) /*/ numberOfErrorVals*/;
+
+        /*errorDataComputebuffer.GetData(m_particlesError);
+        float errorSum = 0f;
+        for (int i = 0; i < m_particlesError.Length; i++)
+        {
+            float error = m_particlesError[i];
+            errorSum += error;
+        }*/
+
+
         //these two could be done simultaneously taking advantage of more GPU threads.
-        m_computeShader.SetInt("_direction", 0);
-        float errorPos = gpuErrorDirection(nodes, deltas, deltaScale, 1.0f) /*/ numberOfErrorVals*/;
-        m_computeShader.SetInt("_direction", 1);
-        float errorNeg = gpuErrorDirection(nodes, deltas, deltaScale, -1.0f) /*/ numberOfErrorVals*/;
 
-        m_computeShaderSum.Dispatch(m_kernelSum, 1, 1, 1);//m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
 
-        errorDataComputebuffer.GetData(m_particlesError);
-        //float errorDiff = ((float)m_particlesError[0]);
 
-        float errorDiff = m_particlesError[0];//0f;
+        m_computeShaderSum.Dispatch(m_kernelSum, m_threadGroupsX, m_threadGroupsY, 1);//m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+
+        //errorDataComputebuffer.GetData(m_particlesError);
+
+        sumDataComputeBuffer.GetData(m_errorSingleData);
+
+        float errorDiff = m_errorSingleData[0];//0f;
+        
         /*for (int i = 0; i < m_particlesError.Length; i++)
         {
             float error = m_particlesError[i];
             errorDiff += error;
         }*/
+
+        /*m_computeShader.SetBool("_fancyWay", false);
+        float errorPos = gpuErrorDirection(nodes, deltas, deltaScale, 1.0f);
+
+        errorDataComputebuffer.GetData(m_particlesError);
+        float errorSum3 = 0f;
+        for (int i = 0; i < m_particlesError.Length; i++)
+        {
+            float error = m_particlesError[i];
+            errorSum3 += error;
+        }
+
+        float errorNeg = gpuErrorDirection(nodes, deltas, deltaScale, -1.0f);
+
+        errorDataComputebuffer.GetData(m_particlesError);
+        float errorSum2 = 0f;
+        for (int i = 0; i < m_particlesError.Length; i++)
+        {
+            float error = m_particlesError[i];
+            errorSum2 += error;
+        }
+
+        float tot = errorSum3 - errorSum2;*/
 
         //The error could also be subtracted directly in the shader, like I did when using a 2 size array with the prefix sum.
         //Then GetData only has to be called once.
@@ -216,7 +274,7 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void gpuRecordSimulation(Node[] trainingNodes) {
-        m_computeShader.Dispatch(m_kernelRecord, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+        m_computeShader.Dispatch(m_kernelRecord, m_threadGroupsX, m_threadGroupsY, 1);
         //No need to restore anything or switch buffers because the record kernel doesn't modify the particles buffer.
     }
 
@@ -247,13 +305,15 @@ public class ReducedModel : MonoBehaviour {
                 Debug.Log(i + " " + testNodes[i].pos + " " + testNodes[i].force);
             }
 
-            //nodesComputeBuffer.SetData(testNodes);
-            //m_computeShader.Dispatch(m_kernelValidate, m_dimensionWidth, m_dimensionHeight, m_dimensionDepth);
+            nodesComputeBuffer.SetData(testNodes);
+            m_computeShader.SetFloat("_direction", 0.0f);
+            m_computeShader.Dispatch(m_kernelValidate, m_threadGroupsX, m_threadGroupsY, 1);
+            m_computeShaderSum.Dispatch(m_kernelSum, m_threadGroupsX, m_threadGroupsY, 1);
 
             //No double buffer switching here in order to preserve the original.
-
-            //errorDataComputebuffer.GetData(m_particlesError);
-            float sum = m_particlesError[0];//0f;
+            
+            sumDataComputeBuffer.GetData(m_errorSingleData);
+            float sum = m_errorSingleData[0];//0f;
             /*for (int i = 0; i < m_particlesError.Length; i++)
             {
                 float error = m_particlesError[i];   //Some error diffs are negative
@@ -336,8 +396,8 @@ public class ReducedModel : MonoBehaviour {
         //CPUParticles.cpuRecordSimulation(trainingNodes, ref m_particles, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
         //CPUParticles.cpuTrainValidateModel(testNodes, ref m_particles, ref m_particlesError, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
 
-        //gpuRecordSimulation(trainingNodes);
-        //gpuTrainValidateModel(testNodes);
+        gpuRecordSimulation(trainingNodes);
+        gpuTrainValidateModel(testNodes);
 
         //m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
 

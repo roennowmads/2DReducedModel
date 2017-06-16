@@ -33,6 +33,7 @@ void reduce1(//uint3 id : SV_DispatchThreadID,
 }*/
 
 RWStructuredBuffer<float> g_data;
+RWStructuredBuffer<float> _SumData;
 #define groupDim_x 16
 groupshared float sdata[groupDim_x*groupDim_x];
 [numthreads(groupDim_x, groupDim_x, 1)]
@@ -51,7 +52,7 @@ void myReduce(uint3 id : SV_DispatchThreadID,
 	sdata[tid] = g_data[i];
 	GroupMemoryBarrierWithGroupSync();
 	// do reduction in shared mem
-	for (unsigned int s = 1; s < groupDim_x; s *= 2) {
+	for (unsigned int s = 1; s < groupDim_x*groupDim_x; s *= 2) {
 		if (tid % (2 * s) == 0) //when s == 1, every second element, when s == 2, every fourth element, etc. s stands for step and stepsize.
 		{
 			sdata[tid] += sdata[tid + s];
@@ -61,6 +62,7 @@ void myReduce(uint3 id : SV_DispatchThreadID,
 	// write result for this block to global mem
 	if (tid == 0) {
 		g_data[groupIdx.x] = sdata[0];
+		_SumData[0] = sdata[0];
 	}
 }
 
