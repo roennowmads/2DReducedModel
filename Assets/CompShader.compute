@@ -118,7 +118,6 @@ void validate(uint gIdx : SV_GroupIndex)
 			errorAccumulated += errorDistances;
 		}
 	}
-	//sdata[idx] = errorAccumulated.x - errorAccumulated.y;
 	sdata[idx].x = errorAccumulated.x;
 	sdata[idx].y = errorAccumulated.x - errorAccumulated.y;
 	reduce(gIdx);

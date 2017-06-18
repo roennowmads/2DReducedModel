@@ -60,7 +60,14 @@ public class ReducedModel : MonoBehaviour {
         bufferSwitch = (bufferSwitch + 1) % 2;
     }
 
+    void loadPreGenData()
+    {
+        TextAsset ta = Resources.Load("x/u_00229") as TextAsset;
+    }
+
     void initializeParticles() {
+        loadPreGenData();
+
         m_dimensionWidth = 16;
         m_dimensionHeight = 16;
         int threadGroupSize = 16;
