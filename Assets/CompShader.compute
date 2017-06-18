@@ -19,10 +19,12 @@ struct Particle {
 StructuredBuffer<Particle> _ParticleDataIn;
 RWStructuredBuffer<Particle> _ParticleDataOut;
 
-RWStructuredBuffer<float> _ErrorData;
 RWStructuredBuffer<float3> _RecordedData;
+RWStructuredBuffer<float> _SumData;
 
-StructuredBuffer<Node> _Nodes;
+RWStructuredBuffer<Node> _Nodes;
+RWStructuredBuffer<Node> _BestNodes;
+StructuredBuffer<Node> _DeltaNodes;
 
 #define thread_group_size_x 16
 #define thread_group_size_y 16
@@ -35,22 +37,36 @@ int _particleCount;
 unsigned int _maxIterations;
 unsigned int _dimensionWidth; 
 unsigned int _validationStepSize;
-float _direction;
+float _deltaScale;
+float _gradientScale;
 
-bool _fancyWay;
+
+groupshared float2 sdata[thread_group_size_x*thread_group_size_y];
+void reduce(uint gIdx : SV_GroupIndex) {
+	GroupMemoryBarrierWithGroupSync();
+	// do reduction in shared mem
+	for (unsigned int s = 1; s < thread_group_size_x*thread_group_size_y; s *= 2) {
+		if (gIdx % (2 * s) == 0) //when s == 1, every second element, when s == 2, every fourth element, etc. s stands for step and stepsize.
+		{
+			sdata[gIdx] += sdata[gIdx + s];
+		}
+		GroupMemoryBarrierWithGroupSync();
+	}
+}
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
-void validate(uint3 id : SV_DispatchThreadID)
+void validate(uint gIdx : SV_GroupIndex)
 {
 	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
-	const unsigned int idx = (id.x/* % _dimensionWidth*/) + _dimensionWidth * (id.y /*% _dimensionWidth*/); //(id.y + 1 * id.z);
+	const unsigned int idx = gIdx;//(id.x/* % _dimensionWidth*/) + _dimensionWidth * (id.y /*% _dimensionWidth*/); //(id.y + 1 * id.z);
 
-	float3 position = _ParticleDataIn[idx].position;
-	float3 velocity = _ParticleDataIn[idx].velocity;
+	float3 positionPos = _ParticleDataIn[idx].position;
+	float3 velocityPos = _ParticleDataIn[idx].velocity;
 
-	float errorAccumulated = 0.0;
+	float3 positionNeg = _ParticleDataIn[idx].position;
+	float3 velocityNeg = _ParticleDataIn[idx].velocity;
 
-	float oldErrorData = _ErrorData[idx];
+	float2 errorAccumulated = float2(0, 0);
 
 	for (unsigned int iter = 0; iter < _maxIterations; iter++) {
 		float3 recordedPosition = float3(0.0, 0.0, 0.0);
@@ -60,40 +76,69 @@ void validate(uint3 id : SV_DispatchThreadID)
 			recordedPosition = _RecordedData[recordingIndex];
 		}
 
-		float3 sum_vel = float3(0, 0, 0);
+		float3 sum_velPos = float3(0, 0, 0);
+		float3 sum_velNeg = float3(0, 0, 0);
 		for (int i = 0; i < 3; i++) {
-			float3 node_pos = _Nodes[i].pos;
-			float distanceToNode = max(2.0, distance(node_pos, position));
-			float3 deltaVelocity = normalize(node_pos - position) * _Nodes[i].force / pow(distanceToNode, 1.7);
-			//float3 posToNode = node_pos - position;
-			//float distanceToNode = length(posToNode);
-			//float3 deltaVelocity = posToNode * _Nodes[i].force / (distanceToNode*pow(max(2.0, distanceToNode), 1.7));
-			sum_vel = sum_vel + deltaVelocity;
+			float3 node_position = _Nodes[i].pos;
+			float node_force = _Nodes[i].force;
+
+			float3 node_positionPos = node_position + _DeltaNodes[i].pos * _deltaScale * 1000.0;
+			float node_forcePos = node_force + _DeltaNodes[i].force * _deltaScale;
+
+			float distanceToNodePos = max(2.0, distance(node_positionPos, positionPos));
+			float3 deltaVelocityPos = normalize(node_positionPos - positionPos) * node_forcePos / pow(distanceToNodePos, 1.7);
+			sum_velPos += deltaVelocityPos;
+
+
+			float3 node_positionNeg = node_position - _DeltaNodes[i].pos * _deltaScale * 1000.0;
+			float node_forceNeg = node_force - _DeltaNodes[i].force * _deltaScale;
+
+			float distanceToNodeNeg = max(2.0, distance(node_positionNeg, positionNeg));
+			float3 deltaVelocityNeg = normalize(node_positionNeg - positionNeg) * node_forceNeg / pow(distanceToNodeNeg, 1.7);
+			sum_velNeg += deltaVelocityNeg;
+
+			//float3 positionToNodeNeg = node_positionNeg - positionNeg;
+			//float distanceToNodeNeg = length(positionToNodeNeg);
+			//float3 deltaVelocityNeg = positionToNodeNeg * node_forceNeg / (distanceToNodeNeg*pow(max(2.0, distanceToNodeNeg), 1.7));
 		}
 
-		velocity += (sum_vel / 6.0) * 0.5;
-		velocity += g;
+		velocityPos += (sum_velPos / 6.0) * 0.5;
+		velocityPos += g;
 		float damping = 0.995;
-		velocity = velocity * damping;
+		velocityPos *= damping;
+		positionPos += velocityPos;
 
-		position += velocity;
+		velocityNeg += (sum_velNeg / 6.0) * 0.5;
+		velocityNeg += g;
+		velocityNeg *= damping;
+		positionNeg += velocityNeg;
+		
 		if (compare) {
-			float errorDistance = distance(position, recordedPosition);//pow(abs(_Positions[idx] - recordedPosition), 1.0); //pow(distance(_Positions[idx], recordedPosition), 20.0);
-			errorAccumulated += errorDistance;
+			float2 errorDistances = float2(distance(positionPos, recordedPosition), distance(positionNeg, recordedPosition));
+			errorAccumulated += errorDistances;
 		}
 	}
-	if (_fancyWay) {
-		_ErrorData[idx] = oldErrorData * _direction - (_direction * 2.0 - 1.0) * errorAccumulated;
-		//GroupMemoryBarrierWithGroupSync();
-	}
-	else {
-		_ErrorData[idx] = errorAccumulated;
-	}
-	//ErrorData[idx] is 0, _direction is 0, ErrorData[idx] = errorAccumulated.
-	//ErrorData[idx] is something, _direction is 0, ErrorData[idx] = errorAccumulated.
-	//ErrorData[idx] is 0, _direction is 1, ErrorData[idx] = -errorAccumulated.
-	//ErrorData[idx] is something, _direction is 1, ErrorData[idx] = something - errorAccumulated.
+	//sdata[idx] = errorAccumulated.x - errorAccumulated.y;
+	sdata[idx].x = errorAccumulated.x;
+	sdata[idx].y = errorAccumulated.x - errorAccumulated.y;
+	reduce(gIdx);
 
+	if (gIdx == 0) {
+		//The reduced sum is in sdata[0] after the reduce call.
+		float errorPos = sdata[0].x;
+		float errorDiff = sdata[0].y;
+		_SumData[0] = min(errorPos, _SumData[0]);    //Almost no measurable performance penalty for writing to this global memory
+
+		for (int i = 0; i < 3; i++) {
+			float gradientForce = errorDiff / (2.0f * _DeltaNodes[i].force);
+			float3 gradientPos = errorDiff / (2.0f * _DeltaNodes[i].pos);
+			_Nodes[i].force -= gradientForce * _gradientScale;
+			_Nodes[i].pos -= gradientPos * _gradientScale * 100.0f;
+		}
+	}
+
+	//GroupMemoryBarrierWithGroupSync();
+	//Here would should somehow get the true error with the current node configuration, so that we can find the config with the lowest error.
 }
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
