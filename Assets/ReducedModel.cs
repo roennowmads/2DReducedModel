@@ -60,13 +60,27 @@ public class ReducedModel : MonoBehaviour {
         bufferSwitch = (bufferSwitch + 1) % 2;
     }
 
-    void loadPreGenData()
+    float[] loadPreGenData()
     {
-        TextAsset ta = Resources.Load("x/u_00229") as TextAsset;
+        float[] particles = new float[8192*172];
+        for (int i = 0; i < 172; i++) {
+            string index = (i + 229) + "";
+            TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
+            byte[] bytes = ta.bytes;
+
+            int frameSize = bytes.Length;
+
+            //float[] vals = new float[frameSize / 4];
+            Buffer.BlockCopy(bytes, 0, particles, i * frameSize, frameSize);
+
+        //Looks like a 64*64 grid.
+        //Debug.Log(vals[0]);
+        }
+        return particles;
     }
 
     void initializeParticles() {
-        loadPreGenData();
+        float[] particles = loadPreGenData();
 
         m_dimensionWidth = 16;
         m_dimensionHeight = 16;
