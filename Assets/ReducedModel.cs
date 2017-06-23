@@ -62,7 +62,13 @@ public class ReducedModel : MonoBehaviour {
 
     float[] loadPreGenData()
     {
-        float[] particles = new float[8192*172];
+        Texture2D texture = new Texture2D(64, 64, TextureFormat.RGFloat, false, false);
+        texture.filterMode = FilterMode.Point;
+        texture.wrapMode = TextureWrapMode.Repeat;
+        texture.anisoLevel = 1;
+        //Texture3D texture = new Texture3D(64, 64, 128, TextureFormat.RGFloat, false);
+
+        /*float[] particles = new float[8192*172];
         for (int i = 0; i < 172; i++) {
             string index = (i + 229) + "";
             TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
@@ -75,7 +81,28 @@ public class ReducedModel : MonoBehaviour {
 
         //Looks like a 64*64 grid.
         //Debug.Log(vals[0]);
-        }
+        }*/
+
+        float[] particles = new float[4096 * 2];
+        
+        string index = "" + 229;
+        TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
+        byte[] bytes = ta.bytes;
+
+        //int frameSize = bytes.Length;
+
+        //float[] vals = new float[frameSize / 4];
+        //Buffer.BlockCopy(bytes, 0, particles, 0, frameSize);
+
+        //Looks like a 64*64 grid.
+        //Debug.Log(vals[0]);
+
+        texture.LoadRawTextureData(bytes);
+        texture.Apply();
+
+        Renderer pointRenderer = GetComponent<Renderer>();
+        pointRenderer.material.mainTexture = texture;
+
         return particles;
     }
 
