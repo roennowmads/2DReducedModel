@@ -33,7 +33,7 @@ public class ReducedModel : MonoBehaviour {
     private int m_maxIterations = 2000;
 
     public ComputeShader m_computeShader;
-    private int m_kernelValidate, m_kernelRecord, m_kernelRun;
+    private int m_kernelValidate, m_kernelRecord, m_kernelRun, m_kernelRunField;
 
     private Particle[] m_particles;
     private float[] m_errorSingleData = new float[1];
@@ -102,6 +102,7 @@ public class ReducedModel : MonoBehaviour {
 
         Renderer pointRenderer = GetComponent<Renderer>();
         pointRenderer.material.mainTexture = texture;
+        m_computeShader.SetTexture(m_kernelRunField, "_VelTexture", texture);
 
         return particles;
     }
@@ -151,11 +152,13 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetBuffer(m_kernelValidate, "_ParticleDataIn", particleInOutBuffers[0]);
         m_computeShader.SetBuffer(m_kernelRecord, "_ParticleDataIn", particleInOutBuffers[0]);
         m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[0]);
+        m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataIn", particleInOutBuffers[0]);
 
         particleInOutBuffers[1] = new ComputeBuffer(m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
         particleInOutBuffers[1].SetData(m_particles);
         m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1]);
         m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[1]);
+        m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataOut", particleInOutBuffers[1]);
 
         recordedDataComputebuffer = new ComputeBuffer(m_pointsCount * m_maxIterations / m_validationStepSize, Marshal.SizeOf(typeof(Vector3)), ComputeBufferType.Default);
         //recordedDataComputebuffer.SetData(m_particlesRecorded);
@@ -267,6 +270,7 @@ public class ReducedModel : MonoBehaviour {
         m_kernelValidate = m_computeShader.FindKernel("validate");  
         m_kernelRecord = m_computeShader.FindKernel("record");
         m_kernelRun = m_computeShader.FindKernel("run");
+        m_kernelRunField = m_computeShader.FindKernel("runField");
 
         //nodes for training:`
         Node[] trainingNodes = {
@@ -300,7 +304,7 @@ public class ReducedModel : MonoBehaviour {
 
         bestNodesComputeBuffer = new ComputeBuffer(trainingNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
         m_computeShader.SetBuffer(m_kernelValidate, "_BestNodes", bestNodesComputeBuffer);
-
+        
         m_computeShader.SetInt("_particleCount", m_pointsCount);
         m_pointRenderer.material.SetInt("_PointsCount", m_pointsCount);
         float aspect = Camera.main.GetComponent<Camera>().aspect;
@@ -314,8 +318,8 @@ public class ReducedModel : MonoBehaviour {
         //CPUParticles.cpuRecordSimulation(trainingNodes, ref m_particles, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
         //CPUParticles.cpuTrainValidateModel(testNodes, ref m_particles, ref m_particlesError, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
 
-        gpuRecordSimulation(trainingNodes);
-        gpuTrainValidateModel(testNodes);
+        //gpuRecordSimulation(trainingNodes);
+        //gpuTrainValidateModel(testNodes);
 
         //m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
 
@@ -353,11 +357,15 @@ public class ReducedModel : MonoBehaviour {
     private void OnRenderObject()
     {
         //m_computeShader.SetInt("_iteration", m_iteration);
-        m_computeShader.Dispatch(m_kernelRun, m_threadGroupsX, m_threadGroupsY, 1);
+        //m_computeShader.Dispatch(m_kernelRun, m_threadGroupsX, m_threadGroupsY, 1);
+        m_computeShader.Dispatch(m_kernelRunField, m_threadGroupsX, m_threadGroupsY, 1);
 
         incrementBufferSwitch();
-        m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
-        m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
+        //m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
+        //m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
+
+        m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
+        m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
 
         m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
 
