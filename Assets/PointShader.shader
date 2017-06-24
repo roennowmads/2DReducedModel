@@ -75,7 +75,7 @@
 				//float2 value = tex2Dlod(_MainTex, texCoords).rg;
 
 				//float speed = length(_Velocities[quadId]);
-				o.color = fixed3(value*10.0, 0.0);//fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5);
+				o.color = fixed3(value*10.0, 1.0);//fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5);
 
 				return o;
 			}

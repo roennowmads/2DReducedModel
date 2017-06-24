@@ -32,13 +32,6 @@ StructuredBuffer<Node> _DeltaNodes;
 
 Texture2D<float2> _VelTexture;
 
-SamplerState sampler_VelTexture
-{
-	Filter = MIN_MAG_MIP_POINT;
-	AddressU = Wrap;
-	AddressV = Wrap;
-};
-
 static float3 g = float3(-0.0000918, 0.0, 0.0);
 
 float deltaTime;
@@ -228,17 +221,7 @@ void runField(uint3 id : SV_DispatchThreadID)
 
 	uint2 samplingCoords = uint2(coordPosition + 8.0) ;  // need to scale this correctly
 
-	float2 sum_vel = float2(0.0, 0.0);
-	for (int i = 0; i < 64; i++) {
-		for (int j = 0; j < 64; j++) {
-			//sum_vel += _VelTexture[uint2(i, j)];
-			sum_vel += _VelTexture.SampleLevel(sampler_VelTexture, uint2(i,j), 0).rg;
-		}
-	}
-
-
-	//float2 sampledVelocity = _VelTexture[id.xy];
-	float2 sampledVelocity = sum_vel;//_VelTexture[samplingCoords]*10.0;
+	float2 sampledVelocity = _VelTexture[samplingCoords];
 	position.xy += sampledVelocity;
 
 	_ParticleDataOut[idx].position = position;
