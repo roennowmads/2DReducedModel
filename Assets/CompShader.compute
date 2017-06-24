@@ -3,9 +3,12 @@
 #pragma kernel record
 #pragma kernel run
 #pragma kernel runField
+#pragma kernel recordField
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
+
+#include "UnityCG.cginc"
 
 struct Node {
 	float3 pos;
@@ -27,10 +30,10 @@ RWStructuredBuffer<Node> _Nodes;
 RWStructuredBuffer<Node> _BestNodes;
 StructuredBuffer<Node> _DeltaNodes;
 
-#define thread_group_size_x 16
-#define thread_group_size_y 16
+#define thread_group_size_x 32
+#define thread_group_size_y 32
 
-Texture2D<float2> _VelTexture;
+Texture2DArray<float2> _VelTexture;
 
 static float3 g = float3(-0.0000918, 0.0, 0.0);
 
@@ -41,7 +44,7 @@ unsigned int _dimensionWidth;
 unsigned int _validationStepSize;
 float _deltaScale;
 float _gradientScale;
-
+int _iteration;
 
 groupshared float2 sdata[thread_group_size_x*thread_group_size_y];
 void reduce(uint gIdx : SV_GroupIndex) {
@@ -131,8 +134,8 @@ void validate(uint gIdx : SV_GroupIndex)
 		_SumData[0] = min(errorPos, _SumData[0]);    //Almost no measurable performance penalty for writing to this global memory
 
 		for (int i = 0; i < 3; i++) {
-			float gradientForce = errorDiff / (2.0f * _DeltaNodes[i].force);
-			float3 gradientPos = errorDiff / (2.0f * _DeltaNodes[i].pos);
+			float gradientForce = errorDiff / (2.0f * _DeltaNodes[i].force) + 0.000001; //add small value to avoid division by zero
+			float3 gradientPos = errorDiff / (2.0f * _DeltaNodes[i].pos) + 0.000001; //add small value to avoid division by zero
 			_Nodes[i].force -= gradientForce * _gradientScale;
 			_Nodes[i].pos -= gradientPos * _gradientScale * 100.0f;
 		}
@@ -211,19 +214,49 @@ void run(uint3 id : SV_DispatchThreadID)
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
 void runField(uint3 id : SV_DispatchThreadID)
 {
-	const unsigned int idx = id.x + _dimensionWidth * id.y;
+	if (_iteration < 172 * 5) {
+		const unsigned int idx = id.x + _dimensionWidth * id.y;
+
+		float3 position = _ParticleDataIn[idx].position;
+		//float3 velocity = _ParticleDataIn[idx].velocity;
+
+		float2 coordPosition = position.xy;
+		//coordPosition.x -= 20.0;
+		if (coordPosition.x >= 0 || coordPosition.x <= 63.0 && coordPosition.y >= 0 || coordPosition.y <= 63.0) {
+			uint3 samplingCoords = uint3(coordPosition + 32.0, _iteration / 5);  // need to scale this correctly
+
+			float2 sampledVelocity = _VelTexture[samplingCoords];
+			position.xy += sampledVelocity;
+
+			_ParticleDataOut[idx].position = position;
+			_ParticleDataOut[idx].velocity = float3(sampledVelocity, 0);
+		}
+	}
+}
+
+[numthreads(thread_group_size_x, thread_group_size_y, 1)]
+void recordField(uint3 id : SV_DispatchThreadID)
+{
+	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
+	const unsigned int idx = id.x + _dimensionWidth * id.y; //(id.y + 1 * id.z);
 
 	float3 position = _ParticleDataIn[idx].position;
-	//float3 velocity = _ParticleDataIn[idx].velocity;
 
-	float2 coordPosition = position.xy;
-	coordPosition.x -= 20.0;
 
-	uint2 samplingCoords = uint2(coordPosition + 8.0) ;  // need to scale this correctly
+	for (unsigned int iter = 0; iter < _maxIterations; iter++) {
+		float2 coordPosition = position.xy;
 
-	float2 sampledVelocity = _VelTexture[samplingCoords];
-	position.xy += sampledVelocity;
+		if (coordPosition.x >= 0 || coordPosition.x <= 63.0 && coordPosition.y >= 0 || coordPosition.y <= 63.0) {
 
-	_ParticleDataOut[idx].position = position;
-	//_ParticleDataOut[idx].velocity = velocity;
+			uint3 samplingCoords = uint3(coordPosition + 32.0, iter / 5);
+
+			float2 velocity = _VelTexture[samplingCoords];
+			position.xy += velocity;
+
+		}
+	
+		if (iter % _validationStepSize == 0) {
+			_RecordedData[idx + (iter * _particleCount / _validationStepSize)] = position;
+		}
+	}
 }

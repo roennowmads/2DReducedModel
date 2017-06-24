@@ -2,7 +2,7 @@
 {
 	Properties
 	{
-		_MainTex ("Texture", 2D) = "white" {}
+		_MainTex ("Texture", 3D) = "white" {}
 	}
 	SubShader
 	{
@@ -27,7 +27,7 @@
 			StructuredBuffer<Particle> _ParticleData;
 			//StructuredBuffer<float> _Error;
 
-			Texture2D<float2> _MainTex;
+			Texture2DArray<float2> _MainTex;
 
 			SamplerState sampler_MainTex
 			{
@@ -43,6 +43,7 @@
 			uniform uint _FrameTime;
 			uniform uint _Magnitude;
 			uniform int _TextureSwitchFrameNumber;
+			uniform int _iteration;
 
 			struct appdata
 			{
@@ -68,14 +69,15 @@
 				o.vertex += trans;
 				o.vertex = UnityWorldToClipPos(o.vertex.xyz);
 
-				float id = v.id;
-				float4 texCoords = float4(id % 64, id / 64, 0.0, 0.0);
+				//float id = v.id;
+				//float4 texCoords = float4(id % 64, id / 64, 0.0, 0.0);
 
-				float2 value = _MainTex.SampleLevel(sampler_MainTex, texCoords, 0).rg;
+				//float2 value = _MainTex.SampleLevel(sampler_MainTex, texCoords, 0).rg;
 				//float2 value = tex2Dlod(_MainTex, texCoords).rg;
 
 				//float speed = length(_Velocities[quadId]);
-				o.color = fixed3(value*10.0, 1.0);//fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5);
+				//o.color = fixed3(value*10.0, 1.0);//fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5);
+				o.color = fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5);
 
 				return o;
 			}

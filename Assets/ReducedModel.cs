@@ -30,15 +30,16 @@ public class ReducedModel : MonoBehaviour {
     private float m_currentTime;
     private float m_lastFrameTime = 0.0f;
     private int m_iteration = 0;
-    private int m_maxIterations = 2000;
+    private int m_iter = 0;
+    private int m_maxIterations = 172 * 5;//1000;
 
     public ComputeShader m_computeShader;
-    private int m_kernelValidate, m_kernelRecord, m_kernelRun, m_kernelRunField;
+    private int m_kernelValidate, m_kernelRecord, m_kernelRun, m_kernelRunField, m_kernelRecordField;
 
     private Particle[] m_particles;
     private float[] m_errorSingleData = new float[1];
 
-    private int m_validationStepSize = 50;
+    private int m_validationStepSize = 10;
 
     private int bufferSwitch = 0;
 
@@ -60,12 +61,22 @@ public class ReducedModel : MonoBehaviour {
         bufferSwitch = (bufferSwitch + 1) % 2;
     }
 
-    float[] loadPreGenData()
+    void loadPreGenData()
     {
-        Texture2D texture = new Texture2D(64, 64, TextureFormat.RGFloat, false, false);
+        Texture2D tex = new Texture2D(64, 64, TextureFormat.RGFloat, false, false);
+        tex.filterMode = FilterMode.Point;
+        tex.wrapMode = TextureWrapMode.Repeat;
+        tex.anisoLevel = 1;
+
+        Texture2DArray texture = new Texture2DArray(64, 64, 256, TextureFormat.RGFloat, false);
         texture.filterMode = FilterMode.Point;
         texture.wrapMode = TextureWrapMode.Repeat;
         texture.anisoLevel = 1;
+
+        //Texture3D texture = new Texture3D(64, 64, 256, TextureFormat.RGFloat, false);
+        //texture.filterMode = FilterMode.Point;
+        //texture.wrapMode = TextureWrapMode.Repeat;
+        //texture.anisoLevel = 1;
         //Texture3D texture = new Texture3D(64, 64, 128, TextureFormat.RGFloat, false);
 
         /*float[] particles = new float[8192*172];
@@ -83,36 +94,67 @@ public class ReducedModel : MonoBehaviour {
         //Debug.Log(vals[0]);
         }*/
 
-        float[] particles = new float[4096 * 2];
-        
-        string index = "" + 229;
-        TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
-        byte[] bytes = ta.bytes;
+        //float[] particles = new float[4096 * 2];
 
-        //int frameSize = bytes.Length;
+         /*string index = "" + 229;
+         TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
+         byte[] bytes = ta.bytes;
 
-        //float[] vals = new float[frameSize / 4];
-        //Buffer.BlockCopy(bytes, 0, particles, 0, frameSize);
+         tex.LoadRawTextureData(bytes);
+         tex.Apply();
+
+         Graphics.CopyTexture(tex, 0, 0, texture, 1, 0); */
+        //texture.Apply();
+
+        for (int i = 0; i < 172; i++)
+        {
+            string index = "" + (i + 229);
+            TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
+            byte[] bytes = ta.bytes;
+
+            tex.LoadRawTextureData(bytes);
+            tex.Apply();
+
+            Graphics.CopyTexture(tex, 0, 0, texture, i, 0);
+        }
+
+        /*string indexx = "" + (0 + 229);
+        TextAsset tax = Resources.Load("xy/00" + indexx) as TextAsset;
+        byte[] bytesx = tax.bytes;
+
+        int frameSize = bytesx.Length;
+
+        float[] vals = new float[frameSize / 4];
+        Buffer.BlockCopy(bytesx, 0, vals, 0, frameSize);*/
+
+        //Color[] pixels = new Color[4096];
+
+        //for (int i = 0; i < 4096; i+=2) {
+        //    pixels[i] = new Color(vals[i], vals[i+1], 0);
+        //}
+        //texture.SetPixels(data);
+        //texture.Apply();
 
         //Looks like a 64*64 grid.
         //Debug.Log(vals[0]);
 
-        texture.LoadRawTextureData(bytes);
-        texture.Apply();
+        //texture.LoadRawTextureData(bytes);
 
-        Renderer pointRenderer = GetComponent<Renderer>();
-        pointRenderer.material.mainTexture = texture;
+
+        //Renderer pointRenderer = GetComponent<Renderer>();
+        //pointRenderer.material.mainTexture = texture;
         m_computeShader.SetTexture(m_kernelRunField, "_VelTexture", texture);
+        m_computeShader.SetTexture(m_kernelRecordField, "_VelTexture", texture);
 
-        return particles;
+        //return particles;
     }
 
     void initializeParticles() {
-        float[] particles = loadPreGenData();
+        loadPreGenData();
 
-        m_dimensionWidth = 16;
-        m_dimensionHeight = 16;
-        int threadGroupSize = 16;
+        m_dimensionWidth = 32;
+        m_dimensionHeight = 32;
+        int threadGroupSize = 32;
         m_threadGroupsX = m_dimensionWidth / threadGroupSize;
         m_threadGroupsY = m_dimensionHeight / threadGroupSize;
         m_dimensionDepth = 1;
@@ -120,9 +162,9 @@ public class ReducedModel : MonoBehaviour {
         m_particles = new Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
         //m_particlesRecorded = new Vector3[m_particles.Length * m_maxIterations / m_validationStepSize];
 
-        Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
+        Vector3 startingPosition = new Vector3(0.0f, 0.0f, 0.0f);
         
-        float deltaPos = 1.0f;
+        float deltaPos = 0.40f;
 
         for (int i = 0; i < m_dimensionWidth; i++) {
             for (int j = 0; j < m_dimensionHeight; j++) {
@@ -153,6 +195,8 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetBuffer(m_kernelRecord, "_ParticleDataIn", particleInOutBuffers[0]);
         m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[0]);
         m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataIn", particleInOutBuffers[0]);
+        m_computeShader.SetBuffer(m_kernelRecordField, "_ParticleDataIn", particleInOutBuffers[0]);
+
 
         particleInOutBuffers[1] = new ComputeBuffer(m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
         particleInOutBuffers[1].SetData(m_particles);
@@ -165,6 +209,7 @@ public class ReducedModel : MonoBehaviour {
         m_pointRenderer.material.SetBuffer("_RecordedData", recordedDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelValidate, "_RecordedData", recordedDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_RecordedData", recordedDataComputebuffer);
+        m_computeShader.SetBuffer(m_kernelRecordField, "_RecordedData", recordedDataComputebuffer);
 
         sumDataComputeBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(float)), ComputeBufferType.Default);
         float[] initialError = { float.PositiveInfinity };
@@ -221,7 +266,8 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void gpuRecordSimulation(Node[] trainingNodes) {
-        m_computeShader.Dispatch(m_kernelRecord, m_threadGroupsX, m_threadGroupsY, 1);
+        //m_computeShader.Dispatch(m_kernelRecord, m_threadGroupsX, m_threadGroupsY, 1);
+        m_computeShader.Dispatch(m_kernelRecordField, m_threadGroupsX, m_threadGroupsY, 1);
         //No need to restore anything or switch buffers because the record kernel doesn't modify the particles buffer.
     }
 
@@ -244,9 +290,9 @@ public class ReducedModel : MonoBehaviour {
         for (int j = 0; j < 2000; j++)
         {
             gpuEstimateGradient(testNodes);
-            //sumDataComputeBuffer.GetData(m_errorSingleData);
-            //float error = m_errorSingleData[0];
-            //Debug.Log("Error: " + error);
+            sumDataComputeBuffer.GetData(m_errorSingleData);
+            float error = m_errorSingleData[0];
+            Debug.Log("Error: " + error);
         }
 
         nodesComputeBuffer.GetData(nodes);
@@ -271,6 +317,7 @@ public class ReducedModel : MonoBehaviour {
         m_kernelRecord = m_computeShader.FindKernel("record");
         m_kernelRun = m_computeShader.FindKernel("run");
         m_kernelRunField = m_computeShader.FindKernel("runField");
+        m_kernelRecordField = m_computeShader.FindKernel("recordField");
 
         //nodes for training:`
         Node[] trainingNodes = {
@@ -318,16 +365,30 @@ public class ReducedModel : MonoBehaviour {
         //CPUParticles.cpuRecordSimulation(trainingNodes, ref m_particles, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
         //CPUParticles.cpuTrainValidateModel(testNodes, ref m_particles, ref m_particlesError, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
 
-        //gpuRecordSimulation(trainingNodes);
-        //gpuTrainValidateModel(testNodes);
+        gpuRecordSimulation(trainingNodes);
+        gpuTrainValidateModel(testNodes);
 
         //m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
 
-        //nodesComputeBuffer.SetData(checkNodes);
+        //nodesComputeBuffer.SetData(trainingNodes);
 
         //resetParticles();
 
-        m_iteration = 0;
+        /*Vector3[] particlesRecorded = new Vector3[m_particles.Length * m_maxIterations / m_validationStepSize];
+        recordedDataComputebuffer.GetData(particlesRecorded);
+
+        Vector3 sumVec = new Vector3();
+        for (int i = 0; i < particlesRecorded.Length; i++)
+        {
+            if (i % 528 == 0)
+            {
+                Debug.Log(sumVec);
+            }
+
+            sumVec += particlesRecorded[i];
+        }*/
+
+        //m_computeShader.SetInt("_iteration", m_iteration);
     }
 	
 	// Update is called once per frame
@@ -349,37 +410,45 @@ public class ReducedModel : MonoBehaviour {
 
             //m_lastFrameTime = Time.fixedTime;
         }
-
-        
-        m_iteration = m_iteration % m_maxIterations;
     }
 
     private void OnRenderObject()
     {
-        //m_computeShader.SetInt("_iteration", m_iteration);
-        //m_computeShader.Dispatch(m_kernelRun, m_threadGroupsX, m_threadGroupsY, 1);
-        m_computeShader.Dispatch(m_kernelRunField, m_threadGroupsX, m_threadGroupsY, 1);
+        if (m_iter < 175 * 5)
+        {
+            m_computeShader.SetInt("_iteration", m_iteration);
+            m_computeShader.Dispatch(m_kernelRun, m_threadGroupsX, m_threadGroupsY, 1);
+            //m_computeShader.Dispatch(m_kernelRunField, m_threadGroupsX, m_threadGroupsY, 1);
 
-        incrementBufferSwitch();
-        //m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
-        //m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
+            incrementBufferSwitch();
+            m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
+            m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
 
-        m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
-        m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
+            //m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataIn", particleInOutBuffers[bufferSwitch]);
+            //m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataOut", particleInOutBuffers[1 - bufferSwitch]);
+
+        }
 
         m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);
 
-        //m_currentTime += Time.deltaTime;
-        //if (m_currentTime >= m_updateFrequency)
-        {
+
+        m_currentTime += Time.deltaTime;
+        //if (m_currentTime >= m_updateFrequency) {
+            m_iteration = (m_iteration + 1);
             m_currentTime = 0.0f;
-            m_pointRenderer.material.SetPass(0);
-            m_pointRenderer.material.SetMatrix("model", transform.localToWorldMatrix);
-            //m_pointRenderer.material.SetInt("_iteration", m_iteration);
-            //Graphics.DrawProcedural(MeshTopology.Points, 1, m_pointsCount);
-            Graphics.DrawProcedural(MeshTopology.Points, m_pointsCount);  // index buffer.
-            m_iteration++;
-        }
+            //Debug.Log(m_iteration);
+        //}
+        //Debug.Log(m_iter);
+        m_iter++;
+
+
+
+        m_pointRenderer.material.SetPass(0);
+        m_pointRenderer.material.SetMatrix("model", transform.localToWorldMatrix);
+        //m_pointRenderer.material.SetInt("_iteration", m_iteration);
+        //Graphics.DrawProcedural(MeshTopology.Points, 1, m_pointsCount);
+        Graphics.DrawProcedural(MeshTopology.Points, m_pointsCount);  // index buffer.
+            
     }
 
     /*void OnPostRender ()
