@@ -1,13 +1,5 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-
-using System.Text;
-using System.IO;
-using UnityEngine.Rendering;
+﻿using UnityEngine;
 using System.Runtime.InteropServices;
-using System;
-using System.Linq;
 
 public class ReducedModel : MonoBehaviour {  
     public float m_frameSpeed = 5.0f;
@@ -31,7 +23,7 @@ public class ReducedModel : MonoBehaviour {
     private float m_lastFrameTime = 0.0f;
     private int m_iteration = 0;
     private int m_iter = 0;
-    private int m_maxIterations = 172 * 5;//1000;
+    private int m_maxIterations = 2000;//172 * 5;//1000;
 
     public ComputeShader m_computeShader;
     private int m_kernelValidate, m_kernelRecord, m_kernelRun, m_kernelRunField, m_kernelRecordField;
@@ -39,7 +31,7 @@ public class ReducedModel : MonoBehaviour {
     private Particle[] m_particles;
     private float[] m_errorSingleData = new float[1];
 
-    private int m_validationStepSize = 10;
+    private int m_validationStepSize = 50;
 
     private int bufferSwitch = 0;
 
@@ -79,35 +71,7 @@ public class ReducedModel : MonoBehaviour {
         //texture.anisoLevel = 1;
         //Texture3D texture = new Texture3D(64, 64, 128, TextureFormat.RGFloat, false);
 
-        /*float[] particles = new float[8192*172];
         for (int i = 0; i < 172; i++) {
-            string index = (i + 229) + "";
-            TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
-            byte[] bytes = ta.bytes;
-
-            int frameSize = bytes.Length;
-
-            //float[] vals = new float[frameSize / 4];
-            Buffer.BlockCopy(bytes, 0, particles, i * frameSize, frameSize);
-
-        //Looks like a 64*64 grid.
-        //Debug.Log(vals[0]);
-        }*/
-
-        //float[] particles = new float[4096 * 2];
-
-         /*string index = "" + 229;
-         TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
-         byte[] bytes = ta.bytes;
-
-         tex.LoadRawTextureData(bytes);
-         tex.Apply();
-
-         Graphics.CopyTexture(tex, 0, 0, texture, 1, 0); */
-        //texture.Apply();
-
-        for (int i = 0; i < 172; i++)
-        {
             string index = "" + (i + 229);
             TextAsset ta = Resources.Load("xy/00" + index) as TextAsset;
             byte[] bytes = ta.bytes;
@@ -118,29 +82,6 @@ public class ReducedModel : MonoBehaviour {
             Graphics.CopyTexture(tex, 0, 0, texture, i, 0);
         }
 
-        /*string indexx = "" + (0 + 229);
-        TextAsset tax = Resources.Load("xy/00" + indexx) as TextAsset;
-        byte[] bytesx = tax.bytes;
-
-        int frameSize = bytesx.Length;
-
-        float[] vals = new float[frameSize / 4];
-        Buffer.BlockCopy(bytesx, 0, vals, 0, frameSize);*/
-
-        //Color[] pixels = new Color[4096];
-
-        //for (int i = 0; i < 4096; i+=2) {
-        //    pixels[i] = new Color(vals[i], vals[i+1], 0);
-        //}
-        //texture.SetPixels(data);
-        //texture.Apply();
-
-        //Looks like a 64*64 grid.
-        //Debug.Log(vals[0]);
-
-        //texture.LoadRawTextureData(bytes);
-
-
         //Renderer pointRenderer = GetComponent<Renderer>();
         //pointRenderer.material.mainTexture = texture;
         m_computeShader.SetTexture(m_kernelRunField, "_VelTexture", texture);
@@ -150,11 +91,11 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void initializeParticles() {
-        loadPreGenData();
+        //loadPreGenData();
 
-        m_dimensionWidth = 32;
-        m_dimensionHeight = 32;
-        int threadGroupSize = 32;
+        m_dimensionWidth = 16;
+        m_dimensionHeight = 16;
+        int threadGroupSize = 16;
         m_threadGroupsX = m_dimensionWidth / threadGroupSize;
         m_threadGroupsY = m_dimensionHeight / threadGroupSize;
         m_dimensionDepth = 1;
@@ -162,9 +103,9 @@ public class ReducedModel : MonoBehaviour {
         m_particles = new Particle[m_dimensionWidth * m_dimensionHeight * m_dimensionDepth];
         //m_particlesRecorded = new Vector3[m_particles.Length * m_maxIterations / m_validationStepSize];
 
-        Vector3 startingPosition = new Vector3(0.0f, 0.0f, 0.0f);
+        Vector3 startingPosition = new Vector3(20.0f, 0.0f, 0.0f);
         
-        float deltaPos = 0.40f;
+        float deltaPos = 1.0f;
 
         for (int i = 0; i < m_dimensionWidth; i++) {
             for (int j = 0; j < m_dimensionHeight; j++) {
@@ -266,8 +207,8 @@ public class ReducedModel : MonoBehaviour {
     }
 
     void gpuRecordSimulation(Node[] trainingNodes) {
-        //m_computeShader.Dispatch(m_kernelRecord, m_threadGroupsX, m_threadGroupsY, 1);
-        m_computeShader.Dispatch(m_kernelRecordField, m_threadGroupsX, m_threadGroupsY, 1);
+        m_computeShader.Dispatch(m_kernelRecord, m_threadGroupsX, m_threadGroupsY, 1);
+        //m_computeShader.Dispatch(m_kernelRecordField, m_threadGroupsX, m_threadGroupsY, 1);
         //No need to restore anything or switch buffers because the record kernel doesn't modify the particles buffer.
     }
 
@@ -414,7 +355,7 @@ public class ReducedModel : MonoBehaviour {
 
     private void OnRenderObject()
     {
-        if (m_iter < 175 * 5)
+        //if (m_iter < 175 * 5)
         {
             m_computeShader.SetInt("_iteration", m_iteration);
             m_computeShader.Dispatch(m_kernelRun, m_threadGroupsX, m_threadGroupsY, 1);

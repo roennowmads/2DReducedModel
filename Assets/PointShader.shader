@@ -2,7 +2,7 @@
 {
 	Properties
 	{
-		_MainTex ("Texture", 3D) = "white" {}
+		_MainTex ("Texture", 2D) = "white" {}
 	}
 	SubShader
 	{
@@ -77,7 +77,7 @@
 
 				//float speed = length(_Velocities[quadId]);
 				//o.color = fixed3(value*10.0, 1.0);//fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5);
-				o.color = fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5);
+				o.color = fixed3((normalize(_ParticleData[quadId].velocity) + 1.0) * 0.5 + 0.5);
 
 				return o;
 			}
