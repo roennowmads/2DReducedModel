@@ -4,6 +4,7 @@
 #pragma kernel run
 #pragma kernel runField
 #pragma kernel recordField
+//#pragma kernel nodeError
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
@@ -42,12 +43,12 @@ unsigned int _dimensionWidth;
 unsigned int _validationStepSize;
 float _deltaScale;
 float _gradientScale;
-int _iteration;
+unsigned int _iteration;
 
 unsigned int _numberOfNodes;
 float _numberOfNodesReciproc;
 
-groupshared float2 sdata[thread_group_size_x*thread_group_size_y];
+groupshared float sdata[thread_group_size_x*thread_group_size_y];
 void reduce(uint gIdx : SV_GroupIndex) {
 	GroupMemoryBarrierWithGroupSync();
 	// do reduction in shared mem
@@ -63,6 +64,109 @@ void reduce(uint gIdx : SV_GroupIndex) {
 float3 getAccelerationToNode(float3 position, float3 node_position, float node_force) {
 	float distanceToNode = max(2.0, distance(node_position, position));
 	return normalize(node_position - position) * node_force / pow(distanceToNode, 1.7);
+}
+
+/*[numthreads(thread_group_size_x, thread_group_size_y, 1)]
+void nodeError(uint gIdx : SV_GroupIndex)
+{
+	const unsigned int idx = gIdx;
+
+	float3 position = _ParticleDataIn[idx].position;
+	float3 velocity = _ParticleDataIn[idx].velocity;
+
+	float errorAccumulated = 0;
+
+	for (unsigned int iter = 0; iter < _maxIterations; iter++) {
+		float3 recordedPosition = float3(0.0, 0.0, 0.0);
+		bool compare = iter % _validationStepSize == 0;
+		if (compare) {
+			const unsigned int recordingIndex = idx + (iter * _particleCount / _validationStepSize);
+			recordedPosition = _RecordedData[recordingIndex];
+		}
+
+		float3 sum_accelPos = float3(0, 0, 0);
+		for (unsigned int i = 0; i < _numberOfNodes; i++) {
+			float3 node_position = _Nodes[i].pos;
+			float node_force = _Nodes[i].force;
+
+			float3 accelerationToPosNode = getAccelerationToNode(position, node_position, node_force);
+			sum_accelPos += accelerationToPosNode;
+		}
+
+		velocity += sum_accelPos * _numberOfNodesReciproc * 0.25 + g;
+		float damping = 0.995;
+		velocity *= damping;
+		position += velocity;
+
+		if (compare) {
+			float errorDistance = distance(position, recordedPosition);
+			errorAccumulated += errorDistance;
+		}
+	}
+	sdata[idx] = errorAccumulated;
+	reduce(gIdx);
+
+	if (gIdx == 0) {
+		//The reduced sum is in sdata[0] after the reduce call.
+		float error = sdata[0];
+
+		if (error < _SumData[0]) {
+			for (unsigned int i = 0; i < _numberOfNodes; i++) {
+				_BestNodes[i] = _Nodes[i];
+			}
+			_SumData[0] = error;
+		}
+	}
+}*/
+
+void nodeError(uint gIdx : SV_GroupIndex, float3 position, float3 velocity)
+{
+	//int idx = id.x + id.y * 512; //thread_group_size_x * 32;
+	const unsigned int idx = gIdx;//(id.x/* % _dimensionWidth*/) + _dimensionWidth * (id.y /*% _dimensionWidth*/); //(id.y + 1 * id.z);
+
+	float errorAccumulated = 0;
+
+	for (unsigned int iter = 0; iter < _maxIterations; iter++) {
+		float3 recordedPosition = float3(0.0, 0.0, 0.0);
+		bool compare = iter % _validationStepSize == 0;
+		if (compare) {
+			const unsigned int recordingIndex = idx + (iter * _particleCount / _validationStepSize);
+			recordedPosition = _RecordedData[recordingIndex];
+		}
+
+		float3 sum_accelPos = float3(0, 0, 0);
+		for (unsigned int i = 0; i < _numberOfNodes; i++) {
+			float3 node_position = _Nodes[i].pos;
+			float node_force = _Nodes[i].force;
+
+			float3 accelerationToPosNode = getAccelerationToNode(position, node_position, node_force);
+			sum_accelPos += accelerationToPosNode;
+		}
+
+		velocity += sum_accelPos * _numberOfNodesReciproc * 0.25 + g;
+		float damping = 0.995;
+		velocity *= damping;
+		position += velocity;
+
+		if (compare) {
+			float errorDistance = distance(position, recordedPosition);
+			errorAccumulated += errorDistance;
+		}
+	}
+	sdata[idx] = errorAccumulated;
+	reduce(gIdx);
+
+	if (gIdx == 0) {
+		//The reduced sum is in sdata[0] after the reduce call.
+		float error = sdata[0];
+
+		if (error < _SumData[0]) {
+			for (unsigned int i = 0; i < _numberOfNodes; i++) {
+				_BestNodes[i] = _Nodes[i];
+			}
+			_SumData[0] = error;
+		}
+	}
 }
 
 
@@ -90,7 +194,7 @@ void validate(uint gIdx : SV_GroupIndex)
 
 		float3 sum_accelPos = float3(0, 0, 0);
 		float3 sum_accelNeg = float3(0, 0, 0);
-		for (int i = 0; i < _numberOfNodes; i++) {
+		for (unsigned int i = 0; i < _numberOfNodes; i++) {
 			float3 node_position = _Nodes[i].pos;
 			float node_force = _Nodes[i].force;
 
@@ -119,17 +223,14 @@ void validate(uint gIdx : SV_GroupIndex)
 			errorAccumulated += errorDistances;
 		}
 	}
-	sdata[idx].x = errorAccumulated.x;
-	sdata[idx].y = errorAccumulated.x - errorAccumulated.y;
+	sdata[idx] = errorAccumulated.x - errorAccumulated.y;
 	reduce(gIdx);
 
 	if (gIdx == 0) {
 		//The reduced sum is in sdata[0] after the reduce call.
-		float errorPos = sdata[0].x;
-		float errorDiff = sdata[0].y;
-		_SumData[0] = min(errorPos, _SumData[0]);    //Almost no measurable performance penalty for writing to this global memory
+		float errorDiff = sdata[0];
 
-		for (int i = 0; i < _numberOfNodes; i++) {
+		for (unsigned int i = 0; i < _numberOfNodes; i++) {
 			float gradientForce = errorDiff / (2.0f * _DeltaNodes[i].force) /*+ 0.000001*/; //add small value to avoid division by zero
 			float3 gradientPos = errorDiff / (2.0f * _DeltaNodes[i].pos) /*+ 0.000001*/; //add small value to avoid division by zero
 			_Nodes[i].force -= gradientForce * _gradientScale;
@@ -137,7 +238,10 @@ void validate(uint gIdx : SV_GroupIndex)
 		}
 	}
 
-	//GroupMemoryBarrierWithGroupSync();
+	GroupMemoryBarrierWithGroupSync();
+	
+	nodeError(gIdx, _ParticleDataIn[idx].position, _ParticleDataIn[idx].velocity);
+	
 	//Here would should somehow get the true error with the current node configuration, so that we can find the config with the lowest error.
 }
 
@@ -152,7 +256,7 @@ void record(uint3 id : SV_DispatchThreadID)
 
 	for (unsigned int iter = 0; iter < _maxIterations; iter++) {
 		float3 sum_accel = float3(0, 0, 0);
-		for (int i = 0; i < _numberOfNodes; i++) {
+		for (unsigned int i = 0; i < _numberOfNodes; i++) {
 			float3 accelerationToNode = getAccelerationToNode(position, _Nodes[i].pos, _Nodes[i].force);
 			sum_accel += accelerationToNode;
 		}

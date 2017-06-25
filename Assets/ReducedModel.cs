@@ -26,7 +26,7 @@ public class ReducedModel : MonoBehaviour {
     private int m_maxIterations = 2000;//172 * 5;//1000;
 
     public ComputeShader m_computeShader;
-    private int m_kernelValidate, m_kernelRecord, m_kernelRun, m_kernelRunField, m_kernelRecordField;
+    private int m_kernelValidate, m_kernelRecord, m_kernelRun, m_kernelRunField, m_kernelRecordField, m_kernelNodeError;
 
     private Particle[] m_particles;
     private float[] m_errorSingleData = new float[1];
@@ -137,7 +137,7 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetBuffer(m_kernelRun, "_ParticleDataIn", particleInOutBuffers[0]);
         m_computeShader.SetBuffer(m_kernelRunField, "_ParticleDataIn", particleInOutBuffers[0]);
         m_computeShader.SetBuffer(m_kernelRecordField, "_ParticleDataIn", particleInOutBuffers[0]);
-
+        //m_computeShader.SetBuffer(m_kernelNodeError, "_ParticleDataIn", particleInOutBuffers[0]);
 
         particleInOutBuffers[1] = new ComputeBuffer(m_pointsCount, Marshal.SizeOf(typeof(Particle)), ComputeBufferType.Default);
         particleInOutBuffers[1].SetData(m_particles);
@@ -151,11 +151,13 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetBuffer(m_kernelValidate, "_RecordedData", recordedDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_RecordedData", recordedDataComputebuffer);
         m_computeShader.SetBuffer(m_kernelRecordField, "_RecordedData", recordedDataComputebuffer);
+        //m_computeShader.SetBuffer(m_kernelNodeError, "_RecordedData", recordedDataComputebuffer);
 
         sumDataComputeBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(float)), ComputeBufferType.Default);
         float[] initialError = { float.PositiveInfinity };
         sumDataComputeBuffer.SetData(initialError);
         m_computeShader.SetBuffer(m_kernelValidate, "_SumData", sumDataComputeBuffer);
+        //m_computeShader.SetBuffer(m_kernelNodeError, "_SumData", sumDataComputeBuffer);
     }
 
     void resetParticles() {
@@ -215,7 +217,7 @@ public class ReducedModel : MonoBehaviour {
     void gpuTrainValidateModel(Node[] testNodes) {
         float gradientScale = 0.000001f;
         float deltaScale = 0.0001f;
-        int numberOfErrorVals = m_maxIterations * m_pointsCount;
+        float numberOfErrorVals = m_maxIterations * m_pointsCount / m_validationStepSize;
 
         //float bestError = float.PositiveInfinity;
         //int bestIteration = 0;
@@ -228,27 +230,44 @@ public class ReducedModel : MonoBehaviour {
 
         Node[] nodes = new Node[testNodes.Length];
 
-        for (int j = 0; j < 2000; j++)
+        for (int j = 0; j < 10000; j++)
         {
             gpuEstimateGradient(testNodes);
-            sumDataComputeBuffer.GetData(m_errorSingleData);
-            float error = m_errorSingleData[0];
-            Debug.Log("Error: " + error);
+            //sumDataComputeBuffer.GetData(m_errorSingleData);
+            //float error = m_errorSingleData[0];
+            //Debug.Log("Error: " + error);
+
+            if (j % 1000 == 0)
+            {
+                //m_computeShader.Dispatch(m_kernelNodeError, m_threadGroupsX, m_threadGroupsY, 1);
+
+                //Node[] bNodes = new Node[testNodes.Length];
+                //bestNodesComputeBuffer.GetData(bNodes);
+                sumDataComputeBuffer.GetData(m_errorSingleData);
+                float bError = m_errorSingleData[0] / numberOfErrorVals;
+                Debug.Log("Best error at: " + j + " " + bError);
+            }
+
         }
 
-        nodesComputeBuffer.GetData(nodes);
+        //m_computeShader.Dispatch(m_kernelNodeError, m_threadGroupsX, m_threadGroupsY, 1);
+
+        Node[] bestNodes = new Node[testNodes.Length];
+        bestNodesComputeBuffer.GetData(bestNodes);
         sumDataComputeBuffer.GetData(m_errorSingleData);
-        float bestError = m_errorSingleData[0];
+
+
+        float bestError = m_errorSingleData[0] / numberOfErrorVals;
         Debug.Log("Error: " + bestError);
 
         //Debug.Log("Best Error: " + bestIteration + " " + bestError);
 
-        for (int i = 0; i < nodes.Length; i++)
+        for (int i = 0; i < bestNodes.Length; i++)
         {
-            Debug.Log(i + " " + nodes[i].pos + " " + nodes[i].force);
+            Debug.Log(i + " " + bestNodes[i].pos + ", force: " + bestNodes[i].force);
         }
 
-        //nodesComputeBuffer.SetData(bestNodes);
+        nodesComputeBuffer.SetData(bestNodes);
     }
 
     void Start () {
@@ -257,6 +276,8 @@ public class ReducedModel : MonoBehaviour {
         m_kernelValidate = m_computeShader.FindKernel("validate");  
         m_kernelRecord = m_computeShader.FindKernel("record");
         m_kernelRun = m_computeShader.FindKernel("run");
+        //m_kernelNodeError = m_computeShader.FindKernel("nodeError");        
+
         m_kernelRunField = m_computeShader.FindKernel("runField");
         m_kernelRecordField = m_computeShader.FindKernel("recordField");
 
@@ -292,13 +313,16 @@ public class ReducedModel : MonoBehaviour {
         m_computeShader.SetBuffer(m_kernelValidate, "_Nodes", nodesComputeBuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_Nodes", nodesComputeBuffer);
         m_computeShader.SetBuffer(m_kernelRun, "_Nodes", nodesComputeBuffer);
+        //m_computeShader.SetBuffer(m_kernelNodeError, "_Nodes", nodesComputeBuffer);
 
         deltaNodesComputeBuffer = new ComputeBuffer(testNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
         m_computeShader.SetBuffer(m_kernelValidate, "_DeltaNodes", deltaNodesComputeBuffer);
 
         bestNodesComputeBuffer = new ComputeBuffer(testNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
         m_computeShader.SetBuffer(m_kernelValidate, "_BestNodes", bestNodesComputeBuffer);
-        
+        //m_computeShader.SetBuffer(m_kernelNodeError, "_BestNodes", bestNodesComputeBuffer);
+
+
         m_computeShader.SetInt("_particleCount", m_pointsCount);
         m_pointRenderer.material.SetInt("_PointsCount", m_pointsCount);
         float aspect = Camera.main.GetComponent<Camera>().aspect;
@@ -366,6 +390,7 @@ public class ReducedModel : MonoBehaviour {
 
     private void OnRenderObject()
     {
+        if (m_iter < 2000)
         //if (m_iter < 175 * 5)
         {
             m_computeShader.SetInt("_iteration", m_iteration);
