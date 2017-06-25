@@ -270,7 +270,13 @@ public class ReducedModel : MonoBehaviour {
         Node[] testNodes = {
             new Node(new Vector3(-5.0f, -5.0f, 0.0f), 0.0f),
             new Node(new Vector3(5.0f, 5.0f, 0.0f), 0.0f),
-            new Node(new Vector3(5.0f, -5.0f, 0.0f), 0.0f)
+            new Node(new Vector3(5.0f, -5.0f, 0.0f), 0.0f),
+
+            new Node(new Vector3(-5.0f, 5.0f, 0.0f), 0.0f),
+            new Node(new Vector3(0.0f, 0.0f, 0.0f), 0.0f),
+
+            new Node(new Vector3(-2.0f, -2.0f, 0.0f), 0.0f),
+            new Node(new Vector3(2.0f, 2.0f, 0.0f), 0.0f)
         };
 
         Node[] checkNodes = {
@@ -281,16 +287,16 @@ public class ReducedModel : MonoBehaviour {
 
         initializeParticles();
 
-        nodesComputeBuffer = new ComputeBuffer(trainingNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
+        nodesComputeBuffer = new ComputeBuffer(testNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
         nodesComputeBuffer.SetData(trainingNodes);
         m_computeShader.SetBuffer(m_kernelValidate, "_Nodes", nodesComputeBuffer);
         m_computeShader.SetBuffer(m_kernelRecord, "_Nodes", nodesComputeBuffer);
         m_computeShader.SetBuffer(m_kernelRun, "_Nodes", nodesComputeBuffer);
 
-        deltaNodesComputeBuffer = new ComputeBuffer(trainingNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
+        deltaNodesComputeBuffer = new ComputeBuffer(testNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
         m_computeShader.SetBuffer(m_kernelValidate, "_DeltaNodes", deltaNodesComputeBuffer);
 
-        bestNodesComputeBuffer = new ComputeBuffer(trainingNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
+        bestNodesComputeBuffer = new ComputeBuffer(testNodes.Length, Marshal.SizeOf(typeof(Node)), ComputeBufferType.Default);
         m_computeShader.SetBuffer(m_kernelValidate, "_BestNodes", bestNodesComputeBuffer);
         
         m_computeShader.SetInt("_particleCount", m_pointsCount);
@@ -306,7 +312,12 @@ public class ReducedModel : MonoBehaviour {
         //CPUParticles.cpuRecordSimulation(trainingNodes, ref m_particles, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
         //CPUParticles.cpuTrainValidateModel(testNodes, ref m_particles, ref m_particlesError, ref m_particlesRecorded, m_pointsCount, m_maxIterations);
 
+        m_computeShader.SetInt("_numberOfNodes", trainingNodes.Length);
+        m_computeShader.SetFloat("_numberOfNodesReciproc", 1.0f / trainingNodes.Length);
         gpuRecordSimulation(trainingNodes);
+
+        m_computeShader.SetInt("_numberOfNodes", testNodes.Length);
+        m_computeShader.SetFloat("_numberOfNodesReciproc", 1.0f / testNodes.Length);
         gpuTrainValidateModel(testNodes);
 
         //m_pointRenderer.material.SetBuffer("_ParticleData", particleInOutBuffers[bufferSwitch]);

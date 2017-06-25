@@ -44,6 +44,9 @@ float _deltaScale;
 float _gradientScale;
 int _iteration;
 
+unsigned int _numberOfNodes;
+float _numberOfNodesReciproc;
+
 groupshared float2 sdata[thread_group_size_x*thread_group_size_y];
 void reduce(uint gIdx : SV_GroupIndex) {
 	GroupMemoryBarrierWithGroupSync();
@@ -57,10 +60,9 @@ void reduce(uint gIdx : SV_GroupIndex) {
 	}
 }
 
-float3 getDeltaVelocityNode(float3 position, float3 node_position, float node_force) {
+float3 getAccelerationToNode(float3 position, float3 node_position, float node_force) {
 	float distanceToNode = max(2.0, distance(node_position, position));
-	float3 deltaVelocity = normalize(node_position - position) * node_force / pow(distanceToNode, 1.7);
-	return deltaVelocity;
+	return normalize(node_position - position) * node_force / pow(distanceToNode, 1.7);
 }
 
 
@@ -86,31 +88,29 @@ void validate(uint gIdx : SV_GroupIndex)
 			recordedPosition = _RecordedData[recordingIndex];
 		}
 
-		float3 sum_velPos = float3(0, 0, 0);
-		float3 sum_velNeg = float3(0, 0, 0);
-		for (int i = 0; i < 3; i++) {
+		float3 sum_accelPos = float3(0, 0, 0);
+		float3 sum_accelNeg = float3(0, 0, 0);
+		for (int i = 0; i < _numberOfNodes; i++) {
 			float3 node_position = _Nodes[i].pos;
 			float node_force = _Nodes[i].force;
 
 			float3 node_positionPos = node_position + _DeltaNodes[i].pos * _deltaScale * 1000.0;
 			float node_forcePos = node_force + _DeltaNodes[i].force * _deltaScale;
-			float3 deltaVelocityPos = getDeltaVelocityNode(positionPos, node_positionPos, node_forcePos);
-			sum_velPos += deltaVelocityPos;
+			float3 accelerationToPosNode = getAccelerationToNode(positionPos, node_positionPos, node_forcePos);
+			sum_accelPos += accelerationToPosNode;
 
 			float3 node_positionNeg = node_position - _DeltaNodes[i].pos * _deltaScale * 1000.0;
 			float node_forceNeg = node_force - _DeltaNodes[i].force * _deltaScale;
-			float3 deltaVelocityNeg = getDeltaVelocityNode(positionNeg, node_positionNeg, node_forceNeg);
-			sum_velNeg += deltaVelocityNeg;
+			float3 accelerationToNegNode = getAccelerationToNode(positionNeg, node_positionNeg, node_forceNeg);
+			sum_accelNeg += accelerationToNegNode;
 		}
 
-		velocityPos += (sum_velPos / 6.0) * 0.5;
-		velocityPos += g;
+		velocityPos += sum_accelPos * _numberOfNodesReciproc * 0.25 + g;
 		float damping = 0.995;
 		velocityPos *= damping;
 		positionPos += velocityPos;
 
-		velocityNeg += (sum_velNeg / 6.0) * 0.5;
-		velocityNeg += g;
+		velocityNeg += sum_accelNeg * _numberOfNodesReciproc * 0.25 + g;
 		velocityNeg *= damping;
 		positionNeg += velocityNeg;
 		
@@ -129,7 +129,7 @@ void validate(uint gIdx : SV_GroupIndex)
 		float errorDiff = sdata[0].y;
 		_SumData[0] = min(errorPos, _SumData[0]);    //Almost no measurable performance penalty for writing to this global memory
 
-		for (int i = 0; i < 3; i++) {
+		for (int i = 0; i < _numberOfNodes; i++) {
 			float gradientForce = errorDiff / (2.0f * _DeltaNodes[i].force) /*+ 0.000001*/; //add small value to avoid division by zero
 			float3 gradientPos = errorDiff / (2.0f * _DeltaNodes[i].pos) /*+ 0.000001*/; //add small value to avoid division by zero
 			_Nodes[i].force -= gradientForce * _gradientScale;
@@ -151,14 +151,13 @@ void record(uint3 id : SV_DispatchThreadID)
 	float3 velocity = _ParticleDataIn[idx].velocity;
 
 	for (unsigned int iter = 0; iter < _maxIterations; iter++) {
-		float3 sum_vel = float3(0, 0, 0);
-		for (int i = 0; i < 3; i++) {
-			float3 deltaVelocity = getDeltaVelocityNode(position, _Nodes[i].pos, _Nodes[i].force);
-			sum_vel = sum_vel + deltaVelocity;
+		float3 sum_accel = float3(0, 0, 0);
+		for (int i = 0; i < _numberOfNodes; i++) {
+			float3 accelerationToNode = getAccelerationToNode(position, _Nodes[i].pos, _Nodes[i].force);
+			sum_accel += accelerationToNode;
 		}
 
-		velocity += (sum_vel / 6.0) * 0.5;
-		velocity += g;
+		velocity += sum_accel * _numberOfNodesReciproc * 0.25 + g;
 		float damping = 0.995;
 		velocity = velocity * damping;
 
@@ -179,22 +178,20 @@ void run(uint3 id : SV_DispatchThreadID)
 	float3 position = _ParticleDataIn[idx].position;
 	float3 velocity = _ParticleDataIn[idx].velocity;
 
-	float3 sum_vel = float3(0, 0, 0);
+	float3 sum_accel = float3(0, 0, 0);
 	//these operations could be combined into matrix operations up to size 4x4. This may increase performance a bit.
-	for (unsigned int i = 0; i < 3; i++) {
-		float3 deltaVelocity = getDeltaVelocityNode(position, _Nodes[i].pos, _Nodes[i].force);
-		sum_vel = sum_vel + deltaVelocity;
+	for (unsigned int i = 0; i < _numberOfNodes; i++) {
+		float3 accelerationToNode = getAccelerationToNode(position, _Nodes[i].pos, _Nodes[i].force);
+		sum_accel += accelerationToNode;
 	}
 
-	velocity += (sum_vel / 6.0) * 0.5;
-	velocity += g;
+	velocity += sum_accel * _numberOfNodesReciproc * 0.25 + g;
 	float damping = 0.995;
 	velocity = velocity * damping;
 
 	position += velocity;
 	_ParticleDataOut[idx].position = position;
 	_ParticleDataOut[idx].velocity = velocity;
-	
 }
 
 [numthreads(thread_group_size_x, thread_group_size_y, 1)]
